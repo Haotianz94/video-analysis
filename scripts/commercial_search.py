@@ -26,11 +26,12 @@ def check_black_in_gt(black_frame_list, groundtruth, fps):
             print(fid, get_time_from_fid(fid, fps))
 
 # visualize functions
-def visualize_commercial(commercial_list, groundtruth=None, raw_commercial_list=None, lowertext_window_list=None):
+def visualize_commercial(commercial_list, groundtruth=None, raw_commercial_list=None, lowertext_window_list=None, blanktext_window_list=None):
     y_gt = [1, 1]
     y_com = [2, 2]
     y_raw = [3, 3]
     y_lower = [4, 4]
+    y_blank = [5, 5]
     plt.figure(111)
     if not groundtruth is None: 
         for gt in groundtruth:
@@ -50,6 +51,11 @@ def visualize_commercial(commercial_list, groundtruth=None, raw_commercial_list=
         for com in lowertext_window_list:
             text = 'our: ' + str(com[0][1]) + '-'+ str(com[1][1])
             plt.plot([get_second(com[0][1]), get_second(com[1][1])], y_lower, 'b', linewidth=5.0)
+    
+    if not blanktext_window_list is None:
+        for com in blanktext_window_list:
+            text = 'our: ' + str(com[0][1]) + '-'+ str(com[1][1])
+            plt.plot([get_second(com[0][1]), get_second(com[1][1])], y_blank, 'k', linewidth=5.0)
     
     legend = plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     plt.ylim([0, 10])
@@ -158,10 +164,17 @@ def search_commercial(black_window_list, transcript, video_desp):
 #         if second < BEGINNING_SECOND_THRESH:
 #             black_window_list.remove(w)
 
-def get_blank_text_list(transcript, video_desp):
+def get_blanktext_window_list(transcript, video_desp):
+    MIN_THRESH = 30
+    MAX_THRESH = 240
     fps = video_desp['fps']
-    
-
+    blanktext_window_list = []
+    for i in range(len(transcript)-1):
+        time_span = get_time_difference(transcript[i][2], transcript[i+1][1])
+        if time_span > MIN_THRESH and time_span < MAX_THRESH:
+            blanktext_window_list.append(((get_fid_from_time(transcript[i][2],fps),transcript[i][2]),(get_fid_from_time(transcript[i+1][1],fps),transcript[i+1][1]) ))
+    return blanktext_window_list
+            
 def is_lower_text(text):
     if len(text) == 0:
         return False
@@ -306,6 +319,8 @@ def test_single_video(video_name):
     raw_commercial_list = search_commercial(black_window_list, transcript, video_desp)
     lowertext_window_list = get_lowertext_window_list(transcript, video_desp)
     commercial_list = merge_commercial_list(raw_commercial_list, lowertext_window_list)
+    blanktext_window_list = get_blanktext_window_list(transcript, video_desp)
+    commercial_list = merge_commercial_list(commercial_list, blanktext_window_list)
     
     groundtruth = commercial_gt[video_name]['span']
     visualize_commercial(commercial_list, groundtruth, raw_commercial_list, lowertext_window_list)  
@@ -322,9 +337,11 @@ def test_video_list(video_list_path):
         raw_commercial_list = search_commercial(black_window_list, transcript, video_desp)
         lowertext_window_list = get_lowertext_window_list(transcript, video_desp)
         commercial_list = merge_commercial_list(raw_commercial_list, lowertext_window_list)
-        
+        blanktext_window_list = get_blanktext_window_list(transcript, video_desp)
+        commercial_list = merge_commercial_list(commercial_list, blanktext_window_list)
+
         groundtruth = commercial_gt[video_name]['span']
-        visualize_commercial(commercial_list, groundtruth, raw_commercial_list, lowertext_window_list)  
+        visualize_commercial(commercial_list, groundtruth, raw_commercial_list, lowertext_window_list, blanktext_window_list)  
         res = check_groundtruth(groundtruth, commercial_list)
         result[video_name] = res
     return result

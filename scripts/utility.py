@@ -1,3 +1,5 @@
+import numpy as np
+
 # help functions
 def get_time_from_fid(fid, fps):
     second = int(fid / fps)
@@ -75,26 +77,24 @@ def insert_window2list(win_list, win):
 def merge_commercial_list(list_a, list_b):
     # insert wb into wa
     merged_list = []
-    insert_list = []
-    for i in range(len(list_b)):
-        insert_list.append(False)
+    insert_list = np.zeros(len(list_b))
     
     for wa in list_a:
         new_w = wa
         for i in range(len(list_b)):
             is_insert, new_w = insert_window(new_w, list_b[i])
             if is_insert:
-                insert_list[i] = True
+                insert_list[i] = 1
         merged_list.append(new_w)
     # add other single lowertext window
     for i in range(len(list_b)):
-        if not insert_list[i]:
+        if insert_list[i] == 0:
             insert_window2list(merged_list, list_b[i])
     
-    #Todo: merge small gaps
+    #merge small gaps
     i = 0
     while i < len(merged_list) - 1:
-        if get_time_difference(merged_list[i][1][1], merged_list[i+1][0][1]) < 10:
+        if get_time_difference(merged_list[i][1][1], merged_list[i+1][0][1]) < 30:
             merged_list[i] = (merged_list[i][0], merged_list[i+1][1])
             del merged_list[i+1]
         else:
