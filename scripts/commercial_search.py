@@ -26,7 +26,7 @@ def check_black_in_gt(black_frame_list, groundtruth, fps):
             print(fid, get_time_from_fid(fid, fps))
 
 # visualize functions
-def visualize_commercial(commercial_list, groundtruth=None, raw_commercial_list=None, lowertext_window_list=None, blanktext_window_list=None):
+def visualize_commercial(commercial_list, video_desp, groundtruth=None, raw_commercial_list=None, lowertext_window_list=None, blanktext_window_list=None):
     y_gt = [1, 1]
     y_com = [2, 2]
     y_raw = [3, 3]
@@ -59,6 +59,7 @@ def visualize_commercial(commercial_list, groundtruth=None, raw_commercial_list=
     
     legend = plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
     plt.ylim([0, 10])
+    plt.xlim([0, video_desp['video_length']])
     plt.xlabel('video time (s)')
     cur_axes = plt.gca()
     cur_axes.axes.get_yaxis().set_visible(False)
@@ -157,14 +158,6 @@ def search_commercial(black_window_list, transcript, video_desp):
 #         print(commercial)
     return commercial_list
 
-# def filter_black_window(black_window_list, fps):
-#     # filter black window by checking the beginning and end of the video (abandoned)
-#     BEGINNING_SECOND_THRESH = 60
-#     for w in black_window_list:
-#         second = w[0] / fps
-#         if second < BEGINNING_SECOND_THRESH:
-#             black_window_list.remove(w)
-
 def get_blanktext_window_list(transcript, video_desp):
     MIN_THRESH = 30
     MAX_THRESH = 240
@@ -195,6 +188,7 @@ def get_lowertext_window_list(transcript, video_desp):
                 lower_start = (get_fid_from_time(t[1], fps), t[1])
                 lower_end = (get_fid_from_time(t[2], fps), t[2])
             else:
+                #Todo: add thresh 
                 lower_end = (get_fid_from_time(t[2], fps), t[2])
         else:
             if not lower_end is None:
@@ -230,18 +224,21 @@ def get_black_window_list(black_frame_list, video_desp):
     return black_window_list
 
 def remove_commercial_gaps(clist, transcript):
+    GAP_THRESH = 90
     i = 0
     while i < len(clist) - 1:
-        if get_time_difference(clist[i][1][1], clist[i+1][0][1]) < 90:
+        if get_time_difference(clist[i][1][1], clist[i+1][0][1]) < GAP_THRESH:
             # add delay
             start_check_index = get_transcript_index_by_time(clist[i][1][1], transcript)
             end_check_index = get_transcript_index_by_time(clist[i+1][0][1], transcript) - 1
             text = ''
             for index in range(start_check_index, end_check_index+1):
                 text += transcript[index][0]
-            is_in_commercial = False    
-            if text.find('>> Announcer:') != -1:
+            is_in_commercial = True    
+            if text.find('Announcer:') != -1:
                 is_in_commercial = True
+            elif text.find('>>') != -1:
+                is_in_commercial = False
             if is_in_commercial:    
                 clist[i] = (clist[i][0], clist[i+1][1])
                 del clist[i+1]
@@ -302,13 +299,6 @@ def get_black_frame_list(video_path):
         if frame is None:
             break
         hist = cv2.calcHist([frame], [0, 1, 2], None, [16, 16, 16], [0, 256, 0, 256, 0, 256])
-        #
-    #         diff = get_time_difference(get_time_from_fid(fid, fps), (0,24,28))
-    #         if np.fabs(diff) <= 1:
-    #             cv2.imwrite('../tmp/frame_'+str(fid)+'.jpg', frame)
-#         if fid == 44029:
-#             print(hist)
-        #
         if hist[0,0,0] > BLACK_THRESH:
             black_frame_list.append(fid)
         fid += 1
@@ -319,7 +309,6 @@ def get_black_frame_list(video_path):
     cap.release()
     return black_frame_list
 
-# load commercial groundtruth
 def load_commercial_groundtruth():
     commercial_gt = {}
     for line in open('../data/commercial_gt.csv'):
@@ -344,9 +333,10 @@ def test_single_video(video_name):
     commercial_list = merge_commercial_list(raw_commercial_list, lowertext_window_list)
     blanktext_window_list = get_blanktext_window_list(transcript, video_desp)
     commercial_list = merge_commercial_list(commercial_list, blanktext_window_list)
+    commercial_list = remove_commercial_gaps(commercial_list, transcript)
     
     groundtruth = commercial_gt[video_name]['span']
-    visualize_commercial(commercial_list, groundtruth, raw_commercial_list, lowertext_window_list)  
+    visualize_commercial(commercial_list, video_desp, groundtruth, raw_commercial_list, lowertext_window_list)  
     res = check_groundtruth(groundtruth, commercial_list)
     
 def test_video_list(video_list_path):
@@ -365,7 +355,7 @@ def test_video_list(video_list_path):
         commercial_list = remove_commercial_gaps(commercial_list, transcript)
 
         groundtruth = commercial_gt[video_name]['span']
-        visualize_commercial(commercial_list, groundtruth, raw_commercial_list, lowertext_window_list, blanktext_window_list)  
+        visualize_commercial(commercial_list, video_desp, groundtruth, raw_commercial_list, lowertext_window_list, blanktext_window_list)  
         res = check_groundtruth(groundtruth, commercial_list)
         result[video_name] = res
     return result
