@@ -83,6 +83,7 @@ def check_groundtruth(groundtruth, commercial_list):
     return (precision, recall)
 
 def get_transcript_index_by_time(t, transcript):
+    # find the first index whose beginning time >= t
     TRANSCRIPT_DELAY = 3
     for i in range(len(transcript)):
         stime = transcript[i][1]
@@ -228,6 +229,28 @@ def get_black_window_list(black_frame_list, video_desp):
 #         print(bw)
     return black_window_list
 
+def remove_commercial_gaps(clist, transcript):
+    i = 0
+    while i < len(clist) - 1:
+        if get_time_difference(clist[i][1][1], clist[i+1][0][1]) < 90:
+            # add delay
+            start_check_index = get_transcript_index_by_time(clist[i][1][1], transcript)
+            end_check_index = get_transcript_index_by_time(clist[i+1][0][1], transcript) - 1
+            text = ''
+            for index in range(start_check_index, end_check_index+1):
+                text += transcript[index][0]
+            is_in_commercial = False    
+            if text.find('>> Announcer:') != -1:
+                is_in_commercial = True
+            if is_in_commercial:    
+                clist[i] = (clist[i][0], clist[i+1][1])
+                del clist[i+1]
+            else:
+                i += 1
+        else:
+            i += 1
+    return clist
+    
 def load_single_video(video_name):
     # load black_frame_dict from pickle
     black_frame_dict = pickle.load(open("../data/black_frame_dict.p", 'rb'))
@@ -339,6 +362,7 @@ def test_video_list(video_list_path):
         commercial_list = merge_commercial_list(raw_commercial_list, lowertext_window_list)
         blanktext_window_list = get_blanktext_window_list(transcript, video_desp)
         commercial_list = merge_commercial_list(commercial_list, blanktext_window_list)
+        commercial_list = remove_commercial_gaps(commercial_list, transcript)
 
         groundtruth = commercial_gt[video_name]['span']
         visualize_commercial(commercial_list, groundtruth, raw_commercial_list, lowertext_window_list, blanktext_window_list)  
