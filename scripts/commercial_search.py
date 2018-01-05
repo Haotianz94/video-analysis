@@ -4,7 +4,9 @@ import pysrt
 import time
 import pickle
 from matplotlib import pyplot as plt
-import re
+import threading
+from pathlib import Path
+import math
 from utility import *
 
 
@@ -228,7 +230,14 @@ def get_black_window_list(black_frame_list, video_desp):
 #         print(bw)
     return black_window_list
 
-def remove_commercial_gaps(clist, transcript):
+def post_process(clist, transcript):
+    MIN_COMMERCIAL_TIME = 10
+    # remove small window
+    for com in clist:
+        if get_time_difference(com[0][1], com[1][1]) < MIN_COMMERCIAL_TIME:
+            clist.remove(com)
+    
+    # remove_commercial_gaps
     GAP_THRESH = 90
     i = 0
     while i < len(clist) - 1:
@@ -239,7 +248,7 @@ def remove_commercial_gaps(clist, transcript):
             text = ''
             for index in range(start_check_index, end_check_index+1):
                 text += transcript[index][0]
-            print(clist[i][1][1], text)
+#             print(clist[i][1][1], text)
             is_in_commercial = True    
             if text.find('Announcer:') != -1:
                 is_in_commercial = True
@@ -257,10 +266,27 @@ def remove_commercial_gaps(clist, transcript):
 def load_single_video(video_name):
     # load black_frame_dict from pickle
     black_frame_dict = pickle.load(open("../data/black_frame_dict.p", 'rb'))
+    
     video_path = '../data/videos/' + video_name + '.mp4'
+    video_file = Path(video_path)
+    if not video_file.is_file():
+        print("%s does not exist!!!" % video_path)
+        return None, None, None
+    
     srt_path = '../data/videos/' + video_name + '.cc5.srt'
+    srt_file = Path(srt_path)
+    if not srt_file.is_file():
+        srt_path = srt_path.replace('cc5', 'cc1')
+        srt_file = Path(srt_path)
+        if not srt_file.is_file():
+            print("%s does not exist!!!" % srt_path)
+            return None, None, None
+    
+    if not video_name in black_frame_dict:
+        print("black_frame_list does not exist!!!")
+        return None, None, None
+    
     black_frame_list = black_frame_dict[video_name]
-
     # load transcript
     transcript = []
     subs = pysrt.open(srt_path)
@@ -332,19 +358,23 @@ def load_commercial_groundtruth():
 
 def solve_single_video(video_name):
     black_frame_list, transcript, video_desp = load_single_video(video_name)
+    if video_desp is None:
+        return None, None, None, None, None
     black_window_list = get_black_window_list(black_frame_list, video_desp)
     raw_commercial_list = search_commercial(black_window_list, transcript, video_desp)
     lowertext_window_list = get_lowertext_window_list(transcript, video_desp)
     commercial_list = merge_commercial_list(raw_commercial_list, lowertext_window_list)
     blanktext_window_list = get_blanktext_window_list(transcript, video_desp)
     commercial_list = merge_commercial_list(commercial_list, blanktext_window_list)
-    commercial_list = remove_commercial_gaps(commercial_list, transcript)
+    commercial_list = post_process(commercial_list, transcript)
     return video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list
 
 def test_single_video(video_name):
     commercial_gt = load_commercial_groundtruth()
     video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list = solve_single_video(video_name)
-
+    if video_desp is None
+        return 
+    
     if video_name in commercial_gt:
         groundtruth = commercial_gt[video_name]['span']
         res = check_groundtruth(groundtruth, commercial_list)
@@ -362,8 +392,10 @@ def test_video_list(video_list_path):
         print(video_name)
         result[video_name] = {}
         video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list = solve_single_video(video_name)
+        if video_desp is None:
+            continue
+            
         result[video_name]['commercial'] = commercial_list
-        
         if video_name in commercial_gt:
             groundtruth = commercial_gt[video_name]['span']
             res = check_groundtruth(groundtruth, commercial_list)
@@ -402,10 +434,68 @@ def prepare_black_frame_list(video_list_path):
     black_frame_dict = pickle.load(open("../data/black_frame_dict.p", "rb" ))
     for line in open(video_list_path):
         video_name = line[:-1]
+        if len(video_name) < 5:
+            continue
         if not video_name in black_frame_dict:
             print(video_name)
             video_path = '../data/videos/' + video_name + '.mp4'
-            srt_path = '../data/videos/' + video_name + '.cc5.srt'
             black_frame_list = get_black_frame_list(video_path)
             black_frame_dict[video_name] = black_frame_list
             pickle.dump(black_frame_dict, open("../data/black_frame_dict.p", "wb" ))
+
+def get_black_frame_list_t(video_list, black_frame_dict_path):
+    black_frame_dict = {}
+    i = 0
+    for video_name in video_list:
+        if len(video_name) < 5:
+            continue
+        print(i, video_name)
+        video_path = '../data/videos/' + video_name + '.mp4'
+        black_frame_list = get_black_frame_list(video_path)
+        black_frame_dict[video_name] = black_frame_list
+        pickle.dump(black_frame_dict, open(black_frame_dict_path, "wb" ))
+        i += 1
+        
+def prepare_black_frame_list_multithread(video_list_path, nthread=4):
+    video_list = open(video_list_path).read().split('\n')
+    black_frame_dict = pickle.load(open("../data/black_frame_dict.p", "rb" ))
+    # remove exist videos:
+    for video in video_list:
+        if video in black_frame_dict:
+            video_list.remove(video)
+    num_video = len(video_list)
+    print(num_video)
+    if num_video <= nthread:
+        nthread = num_video
+        num_video_t = 1
+    else:
+        num_video_t = math.ceil(1. * num_video / nthread)
+    print(num_video_t)
+    
+    black_frame_dict_list = []
+    for i in range(nthread):
+        black_frame_dict_list.append('../tmp/black_frame_dict' + str(i) + '.p')
+    
+    thread_list = []
+    for i in range(nthread):
+        if i != nthread - 1:
+            video_list_t = video_list[i*num_video_t : (i+1)*num_video_t]
+        else:
+            video_list_t = video_list[i*num_video_t : ]
+        t = threading.Thread(target=get_black_frame_list_t, args=(video_list_t, black_frame_dict_list[i],))
+        t.setDaemon(True)
+        thread_list.append(t)
+    
+    for t in thread_list:
+        t.start()
+    for t in thread_list:
+        t.join()
+    
+    for path in black_frame_dict_list:
+        dict_file = Path(path)
+        if not dict_file.is_file():
+            continue
+        black_frame_dict_tmp = pickle.load(open(path, "rb" ))
+        black_frame_dict = {**black_frame_dict, **black_frame_dict_tmp}
+        
+    pickle.dump(black_frame_dict, open("../data/black_frame_dict.p", "wb" ))
