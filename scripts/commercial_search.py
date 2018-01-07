@@ -195,7 +195,7 @@ def search_commercial(black_window_list, transcript, video_desp):
 def get_blanktext_window_list(transcript, video_desp):
     TRANSCRIPT_DELAY = 3
     MIN_THRESH = 30
-    MAX_THRESH = 240
+    MAX_THRESH = 250
     fps = video_desp['fps']
     blanktext_window_list = []
     for i in range(len(transcript)-1):
@@ -238,7 +238,7 @@ def get_lowertext_window_list(transcript, video_desp):
     return lowertext_window_list
 
 def post_process(clist, transcript):
-    MIN_COMMERCIAL_TIME = 10
+    MIN_COMMERCIAL_TIME = 30
     # remove small window
     i = 0
     while i < len(clist):
@@ -248,7 +248,7 @@ def post_process(clist, transcript):
             i += 1
     
     # remove_commercial_gaps
-    GAP_THRESH = 90
+    GAP_THRESH = 60
     i = 0
     while i < len(clist) - 1:
         if get_time_difference(clist[i][1][1], clist[i+1][0][1]) < GAP_THRESH:
@@ -284,7 +284,7 @@ def solve_single_video(video_name):
     lowertext_window_list = get_lowertext_window_list(transcript, video_desp)
     commercial_list = merge_commercial_list(raw_commercial_list, lowertext_window_list)
     blanktext_window_list = get_blanktext_window_list(transcript, video_desp)
-    commercial_list = merge_commercial_list(commercial_list, blanktext_window_list)
+    commercial_list = merge_commercial_list(commercial_list, blanktext_window_list, avoid_long=True)
     commercial_list = post_process(commercial_list, transcript)
     return video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list
 

@@ -83,7 +83,7 @@ def visualize_video_list(result, commercial_gt, video_length):
     # draw vertical segment
     seg = 500
     while seg < video_length:
-        plt.plot([seg, seg], [0, vid], 'b', linewidth=0.7)
+        plt.plot([seg, seg], [0, vid], 'k', linewidth=0.7)
         seg += 500
     
     
@@ -141,7 +141,12 @@ def detect_suspicous(result):
     MIN_SPAN_THRESH = 60
     MAX_SPAN_THRESH = 240
     MIN_GAP_THRESH = 60
+    NUM_THRESH = 7
     count = 0
+    suspicous_video = []
+    long_video = []
+    all_spans = []
+    
     for video_name in sorted(result):
         print(video_name)
         suspicous = False
@@ -155,8 +160,15 @@ def detect_suspicous(result):
             elif span > MAX_SPAN_THRESH:
                 print(com[0][1], com[1][1], "[large block]")
                 suspicous = True
+                long_video.append(video_name)
             else:
                 print(com[0][1], com[1][1])
+            all_spans.append(span)    
+                
+        num_com = len(commercial_list)
+        if num_com > NUM_THRESH:
+            print("[too many blocks]")
+            suspicous = True
 #             if i != len(commercial_list)-1:
 #                 com_next = commercial_list[i+1]
 #                 gap = get_time_difference(com[1][1], com_next[0][1])
@@ -164,8 +176,14 @@ def detect_suspicous(result):
 #                     print('[small gap]')
 #                     suspicous = True
         if suspicous:
+            suspicous_video.append(video_name)
             count += 1
     print("suspicous videos: %d" % count)
+    
+    for video_name in suspicous_video:
+        print(video_name)
+        
+    return all_spans, long_video    
         
         
 
