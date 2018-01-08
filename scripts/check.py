@@ -134,7 +134,6 @@ def check_groundtruth(groundtruth, commercial_list):
         sum_com += get_time_difference(com[0][1], com[1][1])
     precision = 1.0 * sum_overlap / sum_com
     recall = 1.0 * sum_overlap / sum_gt
-    print("Precision = %3f , Recall = %3f" %(precision*100, recall*100))
     return (precision, recall)
 
 def detect_suspicous(result):

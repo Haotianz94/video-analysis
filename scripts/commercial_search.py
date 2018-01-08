@@ -297,59 +297,51 @@ def test_single_video(video_name):
     if video_name in commercial_gt:
         groundtruth = commercial_gt[video_name]['span']
         res = check_groundtruth(groundtruth, commercial_list)
-        result[video_name]['stat'] = res
         visualize_video_single(commercial_list, video_desp, groundtruth, raw_commercial_list, lowertext_window_list, blanktext_window_list)  
     else:
         visualize_video_single(commercial_list, video_desp, None, raw_commercial_list, lowertext_window_list, blanktext_window_list)
 
         
-def test_video_list(video_list_path):
+def test_video_list(video_list_path, show_detail=False):
     commercial_gt = load_commercial_groundtruth()
     result = {}
+    avg_precision = avg_recall = num_res = 0
     for line in open(video_list_path):
         video_name = line[:-1]
-        print(video_name)
-        result[video_name] = {}
         video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list = solve_single_video(video_name)
         if video_desp is None:
             continue
             
-        result[video_name]['commercial'] = commercial_list
-        if video_name in commercial_gt:
-            groundtruth = commercial_gt[video_name]['span']
-            res = check_groundtruth(groundtruth, commercial_list)
-            result[video_name]['stat'] = res
-            visualize_video_single(commercial_list, video_desp, groundtruth, raw_commercial_list, lowertext_window_list, blanktext_window_list)  
-        else:
-            visualize_video_single(commercial_list, video_desp, None, raw_commercial_list, lowertext_window_list, blanktext_window_list)
-        
-        print("===========================================================================================")
-    return result
-
-
-def test_video_list_unsupervised(video_list_path):
-    commercial_gt = load_commercial_groundtruth()
-    result = {}
-    for line in open(video_list_path):
-        video_name = line[:-1]
-#         print(video_name)
-        video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list = solve_single_video(video_name)
-        if video_desp is None:
-            continue
-        
         result[video_name] = {}
         result[video_name]['commercial'] = commercial_list
-#         visualize_video_single(commercial_list, video_desp, None, raw_commercial_list, lowertext_window_list, blanktext_window_list)
+        
         commercial_length = 0
         for com in commercial_list:
             commercial_length += get_time_difference(com[0][1], com[1][1])
         result[video_name]['commercial_length'] = commercial_length
+        
+        if video_name in commercial_gt:
+            groundtruth = commercial_gt[video_name]['span']
+            res = check_groundtruth(groundtruth, commercial_list)
+            result[video_name]['stat'] = res
+            avg_precision += res[0]
+            avg_recall += res[1]
+            num_res += 1    
+        
+        if show_detail:
+            print(video_name)
+            if video_name in commercial_gt:
+                groundtruth = commercial_gt[video_name]['span']
+                visualize_video_single(commercial_list, video_desp, groundtruth, raw_commercial_list, lowertext_window_list, blanktext_window_list)
+                print("Precision = %3f , Recall = %3f, Commercial Length = %d" %(res[0]*100, res[1]*100, commercial_length)) 
+            else:
+                visualize_video_single(commercial_list, video_desp, None, raw_commercial_list, lowertext_window_list, blanktext_window_list)
+                print("Commercial Length = %d" %(commercial_length)) 
+            print("===========================================================================================")
     
-#         commercial_ratio = 1. * commercial_length / video_desp['video_length'] 
-#         print("commercial length =  %d  commercial ratio = %3f" % (commercial_length, commercial_ratio*100))
-#         print("===========================================================================================")
-    
-#     visualize_video_list(result, video_desp)
-    
-    return result, video_desp
-    
+    if not show_detail:
+        visualize_video_list(result, commercial_gt, 3700)
+    if num_res > 0:
+        print("Average precision = %3f , Average recall = %3f" %(avg_precision/num_res*100, avg_recall/num_res*100)) 
+
+    return result
