@@ -138,9 +138,10 @@ def check_groundtruth(groundtruth, commercial_list):
 
 def detect_suspicous(result):
     MIN_SPAN_THRESH = 60
-    MAX_SPAN_THRESH = 240
+    MAX_SPAN_THRESH = 270
     MIN_GAP_THRESH = 60
-    NUM_THRESH = 7
+    NUM_MAX_THRESH = 6
+    NUM_MIN_THRESH = 3
     count = 0
     suspicous_video = []
     long_video = []
@@ -165,8 +166,11 @@ def detect_suspicous(result):
             all_spans.append(span)    
                 
         num_com = len(commercial_list)
-        if num_com > NUM_THRESH:
+        if num_com > NUM_MAX_THRESH:
             print("[too many blocks]")
+            suspicous = True
+        if num_com < NUM_MIN_THRESH:
+            print("[too few blocks]")
             suspicous = True
 #             if i != len(commercial_list)-1:
 #                 com_next = commercial_list[i+1]
