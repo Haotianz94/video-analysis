@@ -74,8 +74,10 @@ def insert_window2list(win_list, win):
         win_list.append(win)
     return win_list
 
-def merge_commercial_list(list_a, list_b, avoid_long=False):
-    MAX_COMMERCIAL_TIME = 250
+def merge_commercial_list(win_list_a, win_list_b, avoid_long=False):
+    list_a = list(win_list_a)
+    list_b = list(win_list_b)
+    MAX_COMMERCIAL_TIME = 300
     MAX_MERGE_GAP = 30
     # insert wb into wa
     merged_list = []
@@ -89,10 +91,12 @@ def merge_commercial_list(list_a, list_b, avoid_long=False):
             delete = False
             for wa in list_a:
                 if get_time_difference(wa[0][1], wb[1][1]) > MAX_COMMERCIAL_TIME and get_time_difference(wa[1][1], wb[0][1]) < MAX_MERGE_GAP:
+#                     print(list_b[i])
                     del list_b[i]
                     delete = True
                     break
                 if get_time_difference(wb[0][1], wa[1][1]) > MAX_COMMERCIAL_TIME and get_time_difference(wb[1][1], wa[0][1]) < MAX_MERGE_GAP:
+#                     print(list_b[i])
                     del list_b[i]
                     delete = True
                     break
@@ -113,8 +117,6 @@ def merge_commercial_list(list_a, list_b, avoid_long=False):
     for i in range(len(list_b)):
         if insert_list[i] == 0:
             insert_window2list(merged_list, list_b[i])
-    
-    #Todo: add more merge
     
     #merge small gaps
     i = 0

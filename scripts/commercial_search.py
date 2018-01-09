@@ -104,16 +104,15 @@ def get_black_window_list(black_frame_list, video_desp):
 #         print(bw)
     return black_window_list
 
-def get_transcript_index_by_time(t, transcript):
+def get_transcript_index_by_time(t, transcript, delay=0):
     # find the first index whose beginning time >= t
-    TRANSCRIPT_DELAY = 3
     for i in range(len(transcript)):
         stime = transcript[i][1]
-        if get_time_difference(t, stime) - TRANSCRIPT_DELAY >= 0: 
+        if get_time_difference(t, stime) - delay >= 0: 
             return i
     return len(transcript)-1   
 
-def find_arrow_in_show(last_check_index, new_check_index, transcript):
+def check_in_show(last_check_index, new_check_index, transcript):
     text = ''
     for i in range(last_check_index, new_check_index+1):
         text += transcript[i][0]
@@ -136,7 +135,8 @@ def find_arrow_in_show(last_check_index, new_check_index, transcript):
 def search_commercial(black_window_list, transcript, video_desp):
     # find commercial by checking arrows in transcript
     MIN_COMMERCIAL_TIME = 10
-    MAX_COMMERCIAL_TIME = 240
+    MAX_COMMERCIAL_TIME = 270
+    TRANSCRIPT_DELAY = 6
     
     video_length = video_desp['video_length']
     video_frames = video_desp['video_frames']
@@ -145,44 +145,40 @@ def search_commercial(black_window_list, transcript, video_desp):
     last_check_index = 0
     commercial_end = None
     for w in black_window_list:
-        if commercial_start is None:
-            commercial_start = (w[0], w[2]) # count start from the beginning of the black window
-            last_check_index = get_transcript_index_by_time(w[2], transcript)
-        else:
-            new_check_index = get_transcript_index_by_time(w[2], transcript) - 1
+        new_check_index = get_transcript_index_by_time(w[2], transcript, 0) - 1
 #             print(w[2])
-            is_in_show = find_arrow_in_show(last_check_index, new_check_index, transcript)
-            if is_in_show: 
-                if commercial_end is None:
+        is_in_show = check_in_show(last_check_index, new_check_index, transcript)
+        if is_in_show: 
+            if commercial_end is None:
+                pass
+            else:
+#                     print(commercial_start, commercial_end)
+                if get_time_difference(commercial_start[1], commercial_end[1]) >= MIN_COMMERCIAL_TIME:
+                    commercial_list.append((commercial_start, commercial_end))
+            commercial_start = (w[0], w[2])
+            commercial_end = None
+            last_check_index = get_transcript_index_by_time(w[2], transcript, TRANSCRIPT_DELAY)
+        else:
+            if get_time_difference(commercial_start[1], w[2]) >= MAX_COMMERCIAL_TIME:
+                if commercial_end != None:
                     pass
                 else:
-#                     print(commercial_start, commercial_end)
-                    if get_time_difference(commercial_start[1], commercial_end[1]) >= MIN_COMMERCIAL_TIME:
-                        commercial_list.append((commercial_start, commercial_end))
+                    start_second = get_second(commercial_start[1])
+                    end_second = start_second + MAX_COMMERCIAL_TIME
+                    end_time = get_time_from_second(end_second)
+                    commercial_end = (get_fid_from_time(end_time), end_time)
+                commercial_list.append((commercial_start, commercial_end))
                 commercial_start = (w[0], w[2])
                 commercial_end = None
-                last_check_index = new_check_index + 1
+                last_check_index = get_transcript_index_by_time(w[2], transcript, 0)
             else:
-                if get_time_difference(commercial_start[1], w[2]) >= MAX_COMMERCIAL_TIME:
-                    if commercial_end != None:
-                        pass
-                    else:
-                        start_second = get_second(commercial_start[1])
-                        end_second = start_second + MAX_COMMERCIAL_TIME
-                        end_time = get_time_from_second(end_second)
-                        commercial_end = (get_fid_from_time(end_time), end_time)
-                    commercial_list.append((commercial_start, commercial_end))
-                    commercial_start = (w[0], w[2])
-                    commercial_end = None
-                    last_check_index = new_check_index + 1
-                else:
-                    commercial_end = (w[1], w[2])
-                    last_check_index = new_check_index + 1
+                commercial_end = (w[1], w[2])
+                last_check_index = get_transcript_index_by_time(w[2], transcript, 0)
     if commercial_end != None:
         commercial_list.append((commercial_start, commercial_end))
-    elif commercial_start != None:
+    else:
         new_check_index = len(transcript) - 1
-        is_in_show = find_arrow_in_show(last_check_index, new_check_index, transcript)
+        is_in_show = check_in_show(last_check_index, new_check_index, transcript)
         commercial_end = (video_frames-1, get_time_from_second(video_length))
         if not is_in_show and get_time_difference(commercial_start[1], commercial_end[1]) >= MIN_COMMERCIAL_TIME:
 #             print(commercial_start, commercial_end)
@@ -222,6 +218,7 @@ def get_lowertext_window_list(transcript, video_desp):
     fps = video_desp['fps']
     lowertext_window_list = []
     lower_start = lower_end = None
+    MIN_THRESH = 15
     for t in transcript:
         if is_lower_text(t[0]):
             if lower_start is None:
@@ -232,26 +229,19 @@ def get_lowertext_window_list(transcript, video_desp):
                 lower_end = (get_fid_from_time(t[2], fps), t[2])
         else:
             if not lower_end is None:
-                lowertext_window_list.append((lower_start, lower_end))
+                if get_time_difference(lower_start[1], lower_end[1]) > MIN_THRESH:
+                    lowertext_window_list.append((lower_start, lower_end))
                 lower_start = None
                 lower_end = None
     return lowertext_window_list
 
-def post_process(clist, transcript):
-    MIN_COMMERCIAL_TIME = 30
-    # remove small window
-    i = 0
-    while i < len(clist):
-        if get_time_difference(clist[i][0][1], clist[i][1][1]) < MIN_COMMERCIAL_TIME:
-            del clist[i]
-        else:
-            i += 1
-    
+def post_process(clist, transcript):    
     # remove_commercial_gaps
-    GAP_THRESH = 60
+    GAP_THRESH = 90
+    MAX_COMMERCIAL_TIME = 270
     i = 0
     while i < len(clist) - 1:
-        if get_time_difference(clist[i][1][1], clist[i+1][0][1]) < GAP_THRESH:
+        if get_time_difference(clist[i][1][1], clist[i+1][0][1]) < GAP_THRESH and get_time_difference(clist[i][0][1], clist[i+1][1][1]) < MAX_COMMERCIAL_TIME:
             # add delay
             start_check_index = get_transcript_index_by_time(clist[i][1][1], transcript)
             end_check_index = get_transcript_index_by_time(clist[i+1][0][1], transcript) - 1
@@ -271,6 +261,16 @@ def post_process(clist, transcript):
                 i += 1
         else:
             i += 1
+    
+    # remove small window
+    MIN_COMMERCIAL_TIME = 30
+    i = 0
+    while i < len(clist):
+        if get_time_difference(clist[i][0][1], clist[i][1][1]) < MIN_COMMERCIAL_TIME:
+            del clist[i]
+        else:
+            i += 1
+    
     return clist
 
 def solve_single_video(video_name):
@@ -294,11 +294,17 @@ def test_single_video(video_name):
     if video_desp is None:
         return 
     
+    commercial_length = 0
+    for com in commercial_list:
+        commercial_length += get_time_difference(com[0][1], com[1][1])
+    
     if video_name in commercial_gt:
         groundtruth = commercial_gt[video_name]['span']
         res = check_groundtruth(groundtruth, commercial_list)
-        visualize_video_single(commercial_list, video_desp, groundtruth, raw_commercial_list, lowertext_window_list, blanktext_window_list)  
+        visualize_video_single(commercial_list, video_desp, groundtruth, raw_commercial_list, lowertext_window_list, blanktext_window_list)
+        print("Precision = %3f , Recall = %3f, Commercial Length = %d" %(res[0]*100, res[1]*100, commercial_length)) 
     else:
+        print("Commercial Length = %d" %(commercial_length)) 
         visualize_video_single(commercial_list, video_desp, None, raw_commercial_list, lowertext_window_list, blanktext_window_list)
 
         
