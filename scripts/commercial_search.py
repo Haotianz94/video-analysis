@@ -265,17 +265,25 @@ def post_process(clist, blist, transcript):
     # remove small window and isolated blank window
     MIN_COMMERCIAL_TIME = 30
     MIN_BLANK_TIME = 70
+    MAX_COMMERCIAL_TIME = 240
     i = 0
     while i < len(clist):
+        is_delete = False
         span = get_time_difference(clist[i][0][1], clist[i][1][1])
+        is_isolated = True
+        if i-1 >= 0 and get_time_difference(clist[i-1][0][1], clist[i][1][1]) < MAX_COMMERCIAL_TIME:
+            is_isolated = False
+        if i+1 < len(clist) and get_time_difference(clist[i][0][1], clist[i+1][1][1]) < MAX_COMMERCIAL_TIME:
+            is_isolated = False
         if span < MIN_COMMERCIAL_TIME:
-            del clist[i]
-        elif span < MIN_BLANK_TIME:
-            if clist[i] in blist:
+            if is_isolated:
                 del clist[i]
-            else:
-                i += 1    
-        else:
+                is_delete = True
+        elif span < MIN_BLANK_TIME:
+            if clist[i] in blist and is_isolated:
+                del clist[i]
+                is_delete = True
+        if not is_delete:
             i += 1
             
     return clist
