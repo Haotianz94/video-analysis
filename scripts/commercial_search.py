@@ -283,7 +283,7 @@ def post_process(clist, blist, transcript):
 def solve_single_video(video_name):
     black_frame_list, transcript, video_desp = load_single_video(video_name)
     if video_desp is None:
-        return None, None, None, None, None, None
+        return None, None, None, None, None
     black_window_list = get_black_window_list(black_frame_list, video_desp)
     raw_commercial_list = search_commercial(black_window_list, transcript, video_desp)
 #     return video_desp, raw_commercial_list, None, None, None
@@ -293,7 +293,7 @@ def solve_single_video(video_name):
     blanktext_window_list = get_blanktext_window_list(transcript, video_desp)
     commercial_list = merge_commercial_list(commercial_list, blanktext_window_list, avoid_long=True)
     commercial_list = post_process(commercial_list, blanktext_window_list, transcript)
-    return video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list, transcript
+    return video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list
 
 def count_arrows(clist, transcript):
     TRANSCRIPT_DELAY = 6
@@ -319,7 +319,7 @@ def count_arrows(clist, transcript):
 
 def test_single_video(video_name):
     commercial_gt = load_commercial_groundtruth()
-    video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list, transcript = solve_single_video(video_name)
+    video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list = solve_single_video(video_name)
     if video_desp is None:
         return 
     
@@ -342,7 +342,7 @@ def test_video_list(video_list_path, show_detail=False):
     avg_precision = avg_recall = num_res = 0
     for line in open(video_list_path):
         video_name = line[:-1]
-        video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list, transcript = solve_single_video(video_name)
+        video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list = solve_single_video(video_name)
         if video_desp is None:
             continue
             
@@ -354,8 +354,8 @@ def test_video_list(video_list_path, show_detail=False):
             commercial_length += get_time_difference(com[0][1], com[1][1])
         result[video_name]['commercial_length'] = commercial_length
         
-        num_arrows = count_arrows(commercial_list, transcript)
-        result[video_name]['num_arrows'] = num_arrows
+#         num_arrows = count_arrows(commercial_list, transcript)
+#         result[video_name]['num_arrows'] = num_arrows
         
         if video_name in commercial_gt:
             groundtruth = commercial_gt[video_name]['span']
