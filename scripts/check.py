@@ -182,7 +182,4 @@ def detect_suspicous(result):
     for video_name in suspicous_video:
         print(video_name)
         
-    return all_spans, long_video    
-        
-        
-
+    return all_spans, long_video            
