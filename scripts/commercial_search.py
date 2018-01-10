@@ -25,16 +25,31 @@ def load_commercial_groundtruth():
     #print(commercial_gt)
     return commercial_gt
 
-def load_single_video(video_name):
-    # load black_frame_dict from pickle
-    black_frame_dict = pickle.load(open("../data/black_frame_dict.p", 'rb'))
-    
+def load_single_video_local(video_name):
+    # load video meta data
     video_path = '../data/videos/' + video_name + '.mp4'
     video_file = Path(video_path)
     if not video_file.is_file():
         print("%s does not exist!!!" % video_path)
         return None, None, None
+
+    cap = cv2.VideoCapture(video_path)
+    video_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    frame_w  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    video_length = int(video_frames / fps)
+    cap.release()
+    video_desp = {'video_frames': video_frames, 'frame_w': frame_w, 'frame_h': frame_h, 'fps': fps, 'video_length': video_length}
     
+    # load black_frame_dict from pickle
+    black_frame_dict = pickle.load(open("../data/black_frame_dict.p", 'rb'))
+    if not video_name in black_frame_dict:
+        print("black_frame_list does not exist!!!")
+        return None, None, None
+    black_frame_list = black_frame_dict[video_name]
+
+    # load transcript
     srt_path = '../data/videos/' + video_name + '.cc5.srt'
     srt_file = Path(srt_path)
     if not srt_file.is_file():
@@ -44,12 +59,6 @@ def load_single_video(video_name):
             print("%s does not exist!!!" % srt_path)
             return None, None, None
     
-    if not video_name in black_frame_dict:
-        print("black_frame_list does not exist!!!")
-        return None, None, None
-    
-    black_frame_list = black_frame_dict[video_name]
-    # load transcript
     transcript = []
     subs = pysrt.open(srt_path)
     text_length = 0
@@ -57,25 +66,51 @@ def load_single_video(video_name):
         transcript.append((sub.text, tuple(sub.start)[:3], tuple(sub.end)[:3]))
         text_length += get_time_difference(transcript[-1][1], transcript[-1][2])            
     
-    # load video
-    cap = cv2.VideoCapture(video_path)
-    video_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    frame_w  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    video_length = int(video_frames / fps)
-    cap.release()
-    video_desp = {'video_frames': video_frames, 'frame_w': frame_w, 'frame_h': frame_h, 'fps': fps, 'video_length': video_length}
-
-    # check black_frame_list in groundtruth
-#     groundtruth = commercial_gt[video_name]['span']
-#     check_black_in_gt(black_frame_list, groundtruth, fps)
-    
-    # check completeness     
+    # check transcript completeness     
     if 1. * text_length / video_length < 0.3:
         print("Transcript not complete!!!")
         return None, None, None
+        
+    return black_frame_list, transcript, video_desp
+
+def load_single_video(video_name, video_meta_dict, black_frame_dict):
+    # load video meta data
+    if not video_name in video_meta_dict:
+        print("video_meta does not exist in dict!!!")
+        return None, None, None
+    video_desp = video_meta_dict[video_name]
     
+    # load black_frame_dict from pickle
+    if not video_name in black_frame_dict:
+        print("black_frame_list does not exist in dict!!!")
+        return None, None, None
+    black_frame_list = black_frame_dict[video_name]
+
+    # load transcript
+    #Todo: change path to transcript/
+    srt_path = '../data/videos/' + video_name + '.cc5.srt'
+
+    srt_file = Path(srt_path)
+    if not srt_file.is_file():
+        srt_path = srt_path.replace('cc5', 'cc1')
+        srt_file = Path(srt_path)
+        if not srt_file.is_file():
+            print("%s does not exist!!!" % srt_path)
+            return None, None, None
+    
+    transcript = []
+    subs = pysrt.open(srt_path)
+    text_length = 0
+    for sub in subs:
+        transcript.append((sub.text, tuple(sub.start)[:3], tuple(sub.end)[:3]))
+        text_length += get_time_difference(transcript[-1][1], transcript[-1][2])            
+    
+    # check transcript completeness
+    video_length = video_desp['video_length']
+    if 1. * text_length / video_length < 0.3:
+        print("Transcript not complete!!!")
+        return None, None, None
+        
     return black_frame_list, transcript, video_desp
 
 def get_black_window_list(black_frame_list, video_desp):
@@ -288,19 +323,27 @@ def post_process(clist, blist, transcript):
             
     return clist
 
-def solve_single_video(video_name):
-    black_frame_list, transcript, video_desp = load_single_video(video_name)
+def solve_single_video(video_name, video_meta_dict=None, black_frame_dict=None):
+#     start_time = time.time()
+    if video_meta_dict is None:
+        black_frame_list, transcript, video_desp = load_single_video_local(video_name)
+    else:
+        black_frame_list, transcript, video_desp = load_single_video(video_name, video_meta_dict, black_frame_dict)
+#     print("load time: --- %s seconds ---" % (time.time() - start_time))        
+    
     if video_desp is None:
         return None, None, None, None, None
+#     start_time = time.time()
     black_window_list = get_black_window_list(black_frame_list, video_desp)
     raw_commercial_list = search_commercial(black_window_list, transcript, video_desp)
-#     return video_desp, raw_commercial_list, None, None, None
     
     lowertext_window_list = get_lowertext_window_list(transcript, video_desp)
     commercial_list = merge_commercial_list(raw_commercial_list, lowertext_window_list)
     blanktext_window_list = get_blanktext_window_list(transcript, video_desp)
     commercial_list = merge_commercial_list(commercial_list, blanktext_window_list, avoid_long=True)
     commercial_list = post_process(commercial_list, blanktext_window_list, transcript)
+    
+#     print("compute time: --- %s seconds ---" % (time.time() - start_time))        
     return video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list
 
 def count_arrows(clist, transcript):
@@ -325,9 +368,14 @@ def count_arrows(clist, transcript):
         i += 1
     return num_arrows
 
-def test_single_video(video_name):
+def test_single_video(video_name, local=True):
     commercial_gt = load_commercial_groundtruth()
-    video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list = solve_single_video(video_name)
+    if local:
+        video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list = solve_single_video(video_name)
+    else:
+        video_meta_dict = pickle.load(open('../data/video_meta_dict.pkl', 'rb'))
+        black_frame_dict = pickle.load(open('../data/black_frame_dict.pkl', 'rb'))
+        video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list = solve_single_video(video_name, video_meta_dict, black_frame_dict)
     if video_desp is None:
         return 
     
@@ -344,13 +392,21 @@ def test_single_video(video_name):
         print("Commercial Length = %d" %(commercial_length)) 
         visualize_video_single(commercial_list, video_desp, None, raw_commercial_list, lowertext_window_list, blanktext_window_list)
 
-def test_video_list(video_list_path, show_detail=False):
+def test_video_list(video_list_path, show_detail=False, local=True):
     commercial_gt = load_commercial_groundtruth()
     result = {}
     avg_precision = avg_recall = num_res = 0
+    if not local:
+        video_meta_dict = pickle.load(open('../data/video_meta_dict.pkl', 'rb'))
+        black_frame_dict = pickle.load(open('../data/black_frame_dict.pkl', 'rb'))
     for line in open(video_list_path):
         video_name = line[:-1]
-        video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list = solve_single_video(video_name)
+#         print(video_name)
+        if local:
+            video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list = solve_single_video(video_name)
+        else:
+            video_desp, commercial_list, raw_commercial_list, lowertext_window_list, blanktext_window_list = solve_single_video(video_name, video_meta_dict, black_frame_dict)
+        
         if video_desp is None:
             continue
             
@@ -374,7 +430,6 @@ def test_video_list(video_list_path, show_detail=False):
             num_res += 1    
         
         if show_detail:
-            print(video_name)
             if video_name in commercial_gt:
                 groundtruth = commercial_gt[video_name]['span']
                 visualize_video_single(commercial_list, video_desp, groundtruth, raw_commercial_list, lowertext_window_list, blanktext_window_list)
@@ -383,7 +438,7 @@ def test_video_list(video_list_path, show_detail=False):
                 visualize_video_single(commercial_list, video_desp, None, raw_commercial_list, lowertext_window_list, blanktext_window_list)
                 print("Commercial Length = %d" %(commercial_length)) 
             print("===========================================================================================")
-    
+        
     if not show_detail:
         visualize_video_list(result, commercial_gt, 3700)
     if num_res > 0:

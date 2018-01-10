@@ -28,8 +28,10 @@ def get_black_frame_list(video_path):
         ret, frame = cap.read()
         if frame is None:
             break
-        hist = cv2.calcHist([frame], [0, 1, 2], None, [16, 16, 16], [0, 256, 0, 256, 0, 256])
-        if hist[0,0,0] > BLACK_THRESH:
+        hist0 = cv2.calcHist([frame], [0], None, [16], [0, 256])
+        hist1 = cv2.calcHist([frame], [1], None, [16], [0, 256])
+        hist2 = cv2.calcHist([frame], [2], None, [16], [0, 256])
+        if hist0[0] > BLACK_THRESH and hist1[0] > BLACK_THRESH and hist2[0] > BLACK_THRESH:
             black_frame_list.append(fid)
         fid += 1
         if fid % 10000 == 0:
@@ -71,12 +73,12 @@ def get_black_frame_list_t(video_list, black_frame_dict_path, thread_id):
         
 def prepare_black_frame_list_multithread(video_list_path, nthread=4):
     video_list = open(video_list_path).read().split('\n')
-    black_frame_dict = pickle.load(open("../data/black_frame_dict.p", "rb" ))
+    black_frame_dict = pickle.load(open("../data/black_frame_dict2.p", "rb" ))
     # remove exist videos:
     for video in video_list:
         if video in black_frame_dict:
             video_list.remove(video)
-    num_video = len(video_list)
+    num_video = len(video_list) - 1
     print(num_video)
     if num_video <= nthread:
         nthread = num_video
@@ -111,4 +113,4 @@ def prepare_black_frame_list_multithread(video_list_path, nthread=4):
         black_frame_dict_tmp = pickle.load(open(path, "rb" ))
         black_frame_dict = {**black_frame_dict, **black_frame_dict_tmp}
         
-    pickle.dump(black_frame_dict, open("../data/black_frame_dict.p", "wb" ))
+    pickle.dump(black_frame_dict, open("../data/black_frame_dict2.p", "wb" ))
