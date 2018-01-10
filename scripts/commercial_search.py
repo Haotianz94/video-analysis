@@ -9,6 +9,7 @@ import math
 from utility import *
 from check import *
 from compute_histogram import *
+import codecs
 
 def load_commercial_groundtruth():
     commercial_gt = {}
@@ -45,7 +46,7 @@ def load_single_video_local(video_name):
     # load black_frame_dict from pickle
     black_frame_dict = pickle.load(open("../data/black_frame_dict.p", 'rb'))
     if not video_name in black_frame_dict:
-        print("black_frame_list does not exist!!!")
+        print("Black_frame_list does not exist!!!")
         return None, None, None
     black_frame_list = black_frame_dict[video_name]
 
@@ -58,6 +59,15 @@ def load_single_video_local(video_name):
         if not srt_file.is_file():
             print("%s does not exist!!!" % srt_path)
             return None, None, None
+    
+    # check uft-8
+    try:
+        file = codecs.open(srt_path, encoding='utf-8', errors='strict')
+        for line in file:
+            pass
+    except UnicodeDecodeError:
+        print("Transcript not encoded in utf-8!!!")
+        return None, None, None
     
     transcript = []
     subs = pysrt.open(srt_path)
@@ -87,8 +97,8 @@ def load_single_video(video_name, video_meta_dict, black_frame_dict):
     black_frame_list = black_frame_dict[video_name]
 
     # load transcript
-    srt_path = '../data/videos/' + video_name + '.cc5.srt'
-#     srt_path = '../data/transcript/' + video_name + '.cc5.srt'
+#     srt_path = '../data/videos/' + video_name + '.cc5.srt'
+    srt_path = '../data/transcripts/' + video_name + '.cc5.srt'
 
     srt_file = Path(srt_path)
     if not srt_file.is_file():
@@ -100,6 +110,15 @@ def load_single_video(video_name, video_meta_dict, black_frame_dict):
             if not srt_file.is_file():
                 print("%s does not exist!!!" % srt_path)
                 return None, None, None
+    
+    # check uft-8
+    try:
+        file = codecs.open(srt_path, encoding='utf-8', errors='strict')
+        for line in file:
+            pass
+    except UnicodeDecodeError:
+        print("Transcript not encoded in utf-8!!!")
+        return None, None, None
     
     transcript = []
     subs = pysrt.open(srt_path)
@@ -117,6 +136,9 @@ def load_single_video(video_name, video_meta_dict, black_frame_dict):
     return black_frame_list, transcript, video_desp
 
 def get_black_window_list(black_frame_list, video_desp):
+#     print(black_frame_list)
+    if len(black_frame_list) == 0:
+        return []
     # get black window by checking continuous black frames numbers
     CONTINUOUS_THRESH = 1
     fps = video_desp['fps']
@@ -171,6 +193,8 @@ def check_in_show(last_check_index, new_check_index, transcript):
     return is_in_show
 
 def search_commercial(black_window_list, transcript, video_desp):
+    if len(black_window_list) == 0:
+        return []
     # find commercial by checking arrows in transcript
     MIN_COMMERCIAL_TIME = 10
     MAX_COMMERCIAL_TIME = 270
@@ -178,6 +202,7 @@ def search_commercial(black_window_list, transcript, video_desp):
     
     video_length = video_desp['video_length']
     video_frames = video_desp['video_frames']
+    fps = video_desp['fps']
     commercial_list = []
     commercial_start = (0, (0,0,0))
     last_check_index = 0
@@ -204,7 +229,7 @@ def search_commercial(black_window_list, transcript, video_desp):
                     start_second = get_second(commercial_start[1])
                     end_second = start_second + MAX_COMMERCIAL_TIME
                     end_time = get_time_from_second(end_second)
-                    commercial_end = (get_fid_from_time(end_time), end_time)
+                    commercial_end = (get_fid_from_time(end_time, fps), end_time)
                 commercial_list.append((commercial_start, commercial_end))
                 commercial_start = (w[0], w[2])
                 commercial_end = None
@@ -229,7 +254,7 @@ def search_commercial(black_window_list, transcript, video_desp):
 def get_blanktext_window_list(transcript, video_desp):
     TRANSCRIPT_DELAY = 3
     MIN_THRESH = 30
-    MAX_THRESH = 250
+    MAX_THRESH = 270
     fps = video_desp['fps']
     blanktext_window_list = []
     for i in range(len(transcript)-1):
@@ -302,7 +327,7 @@ def post_process(clist, blist, transcript):
     
     # remove small window and isolated blank window
     MIN_COMMERCIAL_TIME = 30
-    MIN_BLANK_TIME = 70
+    MIN_BLANK_TIME = 90
     MAX_COMMERCIAL_TIME = 240
     i = 0
     while i < len(clist):
@@ -476,9 +501,12 @@ def search_commercial_multithread(video_list_path, commercial_dict_path, nthread
     dict_file = Path(commercial_dict_path)
     if dict_file.is_file():
         commercial_dict = pickle.load(open(commercial_dict_path, "rb" ))
-        for video in video_list:
-            if video in commercial_dict:
-                video_list.remove(video)
+        i = 0
+        while i < len(video_list):
+            if video_list[i] in commercial_dict:
+                del video_list[i]
+            else:
+                i += 1
     else:
         commercial_dict = {}
     

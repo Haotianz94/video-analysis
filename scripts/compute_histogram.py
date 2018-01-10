@@ -75,9 +75,13 @@ def prepare_black_frame_list_multithread(video_list_path, nthread=4):
     video_list = open(video_list_path).read().split('\n')
     black_frame_dict = pickle.load(open("../data/black_frame_dict2.p", "rb" ))
     # remove exist videos:
-    for video in video_list:
-        if video in black_frame_dict:
-            video_list.remove(video)
+    i = 0
+    while i < len(video_list):
+        if video_list[i] in black_frame_dict:
+            del video_list[i]
+        else:
+            i += 1
+
     num_video = len(video_list) - 1
     print(num_video)
     if num_video <= nthread:
