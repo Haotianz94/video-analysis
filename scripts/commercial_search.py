@@ -126,6 +126,7 @@ def load_single_video(video_name, video_meta_dict, black_frame_dict):
     for sub in subs:
         transcript.append((sub.text, tuple(sub.start)[:3], tuple(sub.end)[:3]))
         text_length += get_time_difference(transcript[-1][1], transcript[-1][2])            
+    print(text_length)
     
     # check transcript completeness
     video_length = video_desp['video_length']
@@ -282,14 +283,20 @@ def get_lowertext_window_list(transcript, video_desp):
     lowertext_window_list = []
     lower_start = lower_end = None
     MIN_THRESH = 15
+    MAX_GAP = 60
     for t in transcript:
         if is_lower_text(t[0]):
             if lower_start is None:
                 lower_start = (get_fid_from_time(t[1], fps), t[1])
                 lower_end = (get_fid_from_time(t[2], fps), t[2])
             else:
-                #Todo: add thresh 
-                lower_end = (get_fid_from_time(t[2], fps), t[2])
+                if get_time_difference(lower_end[1], t[2]) < MAX_GAP: 
+                    lower_end = (get_fid_from_time(t[2], fps), t[2])
+                else:
+                    if get_time_difference(lower_start[1], lower_end[1]) > MIN_THRESH:
+                        lowertext_window_list.append((lower_start, lower_end))
+                    lower_start = (get_fid_from_time(t[1], fps), t[1])
+                    lower_end = (get_fid_from_time(t[2], fps), t[2])
         else:
             if not lower_end is None:
                 if get_time_difference(lower_start[1], lower_end[1]) > MIN_THRESH:
@@ -473,6 +480,33 @@ def test_video_list(video_list_path, show_detail=False, local=True):
         print("Average precision = %3f , Average recall = %3f" %(avg_precision/num_res*100, avg_recall/num_res*100)) 
 
     return result
+
+def test_all_result():
+    commercial_gt = load_commercial_groundtruth()
+    avg_precision = avg_recall = num_res = 0
+    commercial_dict = pickle.load(open('../data/commercial_dict.pkl', 'rb'))
+    result = {}
+    for video_name in sorted(commercial_dict):
+        if video_name in commercial_gt:
+            commercial_list = commercial_dict[video_name]
+            result[video_name] = {}
+            result[video_name]['commercial'] = commercial_list
+            
+            commercial_length = 0
+            for com in commercial_list:
+                commercial_length += get_time_difference(com[0][1], com[1][1])
+            result[video_name]['commercial_length'] = commercial_length
+
+            groundtruth = commercial_gt[video_name]['span']
+            res = check_groundtruth(groundtruth, commercial_list)
+            result[video_name]['stat'] = res
+            avg_precision += res[0]
+            avg_recall += res[1]
+            num_res += 1    
+
+    visualize_video_list(result, commercial_gt, 3700)
+    if num_res > 0:
+        print("Average precision = %3f , Average recall = %3f" %(avg_precision/num_res*100, avg_recall/num_res*100)) 
 
 def search_commercial_t(video_list, com_dict_path, thread_id):
     print("Thread %d start computing..." % (thread_id))

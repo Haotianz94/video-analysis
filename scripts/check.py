@@ -1,5 +1,10 @@
 from matplotlib import pyplot as plt
 from utility import *
+import numpy as np
+import pickle
+import pysrt
+from pathlib import Path
+import codecs
 
 # check functions
 def check_black_in_gt(black_frame_list, groundtruth, fps):
@@ -187,3 +192,110 @@ def detect_suspicous(result):
         print(video_name)
         
     return all_spans, long_video            
+
+def get_stat_from_result():
+    commercial_dict = pickle.load(open('../data/commercial_dict.pkl', 'rb'))
+    video_meta_dict = pickle.load(open('../data/video_meta_dict.pkl', 'rb'))
+    # group all the videos by show name
+    show_group_stat = {}
+    for video_name in sorted(commercial_dict):
+        station_name = video_name.split('_')[0]
+        if station_name == 'CNNW':
+            show_name = video_name[21:]
+        elif station_name == 'FOXNEWSW':
+            show_name = video_name[25:]
+        elif station_name == 'MSNBCW':
+            show_name = video_name[23:]
+        if not show_name in show_group_stat:
+            show_group_stat[show_name] = {}
+        show_group_stat[show_name][video_name] = {}
+        show_group_stat[show_name][video_name]['commercial_list'] = commercial_dict[video_name]
+    # count commercial block numbers
+    cnt = 0
+    show_com_counts = {}
+    for show_name in sorted(show_group_stat):
+        com_counts = []
+        for video_name in sorted(show_group_stat[show_name]):
+            num_hour = np.round(1. * video_meta_dict[video_name]['video_length'] / 3600)
+            if num_hour == 0:
+                num_hour = 1
+            coms = len(show_group_stat[show_name][video_name]['commercial_list']) / num_hour
+            if coms > 7:
+                cnt += 1
+#                 print(video_name, num_hour, coms)
+            com_counts.append(coms)
+            show_group_stat[show_name][video_name]['commercial_num'] = coms
+        show_com_counts[show_name] = np.array(com_counts)
+    print(cnt)
+    # calculate commercial ratio
+    show_com_cvgs = {}
+    for show_name in sorted(show_group_stat):
+        com_cvgs = []
+        for video_name in sorted(show_group_stat[show_name]):
+            com_len = 0
+            for com in show_group_stat[show_name][video_name]['commercial_list']:
+                com_len += get_time_difference(com[0][1], com[1][1])
+            cvg = 1. * com_len / video_meta_dict[video_name]['video_length']
+#             if cvg > 0.5:
+#                 print(video_name, com_len, video_meta_dict[video_name]['video_length'])
+#             cvg = float("{0:.3f}".format(cvg))
+            com_cvgs.append(cvg)
+            show_group_stat[show_name][video_name]['commercial_ratio'] = cvg
+        show_com_cvgs[show_name] = np.array(com_cvgs)
+    
+    for show_name in sorted(show_group_stat):
+        show_group_stat[show_name]['stat_num'] = {}
+        show_group_stat[show_name]['stat_num']['max'] = np.max(show_com_counts[show_name])
+        show_group_stat[show_name]['stat_num']['min'] = np.min(show_com_counts[show_name])
+        show_group_stat[show_name]['stat_num']['avg'] = np.average(show_com_counts[show_name])
+        show_group_stat[show_name]['stat_num']['std'] = np.std(show_com_counts[show_name])
+        show_group_stat[show_name]['stat_num']['median'] = np.median(show_com_counts[show_name])
+        show_group_stat[show_name]['stat_num']['num'] = show_com_counts[show_name].shape[0]
+        show_group_stat[show_name]['stat_ratio'] = {}
+        show_group_stat[show_name]['stat_ratio']['max'] = np.max(show_com_cvgs[show_name])
+        show_group_stat[show_name]['stat_ratio']['min'] = np.min(show_com_cvgs[show_name])
+        show_group_stat[show_name]['stat_ratio']['avg'] = np.average(show_com_cvgs[show_name])
+        show_group_stat[show_name]['stat_ratio']['std'] = np.std(show_com_cvgs[show_name])
+        show_group_stat[show_name]['stat_ratio']['median'] = np.median(show_com_cvgs[show_name])
+    return show_group_stat, commercial_dict
+
+def check_transcript_ratio():
+    ratio_dict = {}
+    video_meta_dict = pickle.load(open('../data/video_meta_dict.pkl', 'rb'))
+    cnt = 0
+    for line in open('../data/total_video_list.txt', 'r'):
+        video_name = line[:-1]
+        srt_path = '../data/transcripts/' + video_name + '.cc5.srt'
+
+        srt_file = Path(srt_path)
+        if not srt_file.is_file():
+            srt_path = srt_path.replace('cc5', 'cc1')
+            srt_file = Path(srt_path)
+            if not srt_file.is_file():
+                srt_path = srt_path.replace('cc1', 'align')
+                srt_file = Path(srt_path)
+                if not srt_file.is_file():
+                    continue
+
+        try:
+            file = codecs.open(srt_path, encoding='utf-8', errors='strict')
+            for line in file:
+                pass
+        except UnicodeDecodeError:
+            continue
+
+        subs = pysrt.open(srt_path)
+        text_length = 0
+        for sub in subs:
+            text_length += get_time_difference(tuple(sub.start)[:3], tuple(sub.end)[:3])            
+        ratio_dict[video_name] = 1. * text_length / video_meta_dict[video_name]['video_length']
+        
+        cnt += 1
+        if cnt % 1000 == 0:
+            print(cnt)
+        
+    pickle.dump(ratio_dict, open('../data/ratio_dict.pkl', 'wb'))
+    return ratio_dict
+    
+        
+            
