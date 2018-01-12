@@ -208,40 +208,46 @@ def get_stat_from_result():
             show_name = video_name[23:]
         if not show_name in show_group_stat:
             show_group_stat[show_name] = {}
-        show_group_stat[show_name][video_name] = {}
-        show_group_stat[show_name][video_name]['commercial_list'] = commercial_dict[video_name]
+            show_group_stat[show_name]['videos'] = {}
+        show_group_stat[show_name]['videos'][video_name] = {}
+        show_group_stat[show_name]['videos'][video_name]['commercial_list'] = commercial_dict[video_name]
+        show_group_stat[show_name]['videos'][video_name]['video_length'] = video_meta_dict[video_name]['video_length']
+
     # count commercial block numbers
     cnt = 0
     show_com_counts = {}
     for show_name in sorted(show_group_stat):
         com_counts = []
-        for video_name in sorted(show_group_stat[show_name]):
-            num_hour = np.round(1. * video_meta_dict[video_name]['video_length'] / 3600)
+        for video_name in sorted(show_group_stat[show_name]['videos']):
+            num_hour = np.round(1. * show_group_stat[show_name]['videos'][video_name]['video_length'] / 3600)
             if num_hour == 0:
                 num_hour = 1
-            coms = len(show_group_stat[show_name][video_name]['commercial_list']) / num_hour
+            coms = len(show_group_stat[show_name]['videos'][video_name]['commercial_list']) / num_hour
             if coms > 7:
                 cnt += 1
 #                 print(video_name, num_hour, coms)
             com_counts.append(coms)
-            show_group_stat[show_name][video_name]['commercial_num'] = coms
+            show_group_stat[show_name]['videos'][video_name]['commercial_num'] = coms
         show_com_counts[show_name] = np.array(com_counts)
-    print(cnt)
+        show_group_stat[show_name]['com_counts'] = np.array(com_counts)
+#     print(cnt)
     # calculate commercial ratio
     show_com_cvgs = {}
     for show_name in sorted(show_group_stat):
         com_cvgs = []
-        for video_name in sorted(show_group_stat[show_name]):
+        for video_name in sorted(show_group_stat[show_name]['videos']):
             com_len = 0
-            for com in show_group_stat[show_name][video_name]['commercial_list']:
+            for com in show_group_stat[show_name]['videos'][video_name]['commercial_list']:
                 com_len += get_time_difference(com[0][1], com[1][1])
             cvg = 1. * com_len / video_meta_dict[video_name]['video_length']
 #             if cvg > 0.5:
 #                 print(video_name, com_len, video_meta_dict[video_name]['video_length'])
 #             cvg = float("{0:.3f}".format(cvg))
             com_cvgs.append(cvg)
-            show_group_stat[show_name][video_name]['commercial_ratio'] = cvg
+            show_group_stat[show_name]['videos'][video_name]['commercial_ratio'] = cvg
         show_com_cvgs[show_name] = np.array(com_cvgs)
+        show_group_stat[show_name]['com_cvgs'] = np.array(com_cvgs)
+
     
     for show_name in sorted(show_group_stat):
         show_group_stat[show_name]['stat_num'] = {}
@@ -297,5 +303,80 @@ def check_transcript_ratio():
     pickle.dump(ratio_dict, open('../data/ratio_dict.pkl', 'wb'))
     return ratio_dict
     
-        
+def visualize_commercials_per_minute():
+    commercial_dict = pickle.load(open('../data/commercial_dict.pkl', 'rb'))
+    counts = np.zeros(60)
+    time = np.arange(60)
+    
+    for video in commercial_dict:
+        clist = commercial_dict[video]
+        for com in clist:
+            start = int(get_second(com[0][1]) / 60)
+            end = int(get_second(com[1][1]) / 60)
+            if start >= 60:
+                continue
+            if end >= 60:
+                end = 59
+            for i in range(start, end+1):
+                counts[i] += 1
+                
+    plt.figure()
+    plt.bar(time, counts)
+    plt.xlabel('video time (min)')
+    plt.ylabel('number of commercials hit')
+    plt.show()
+
+def visualize_show(show_group_stat, show_name):
+    show_group = show_group_stat[show_name]
+    
+    counts = np.zeros(60)
+    time = np.arange(60)
+    for video in show_group['videos']:
+        commercial_list = show_group['videos'][video]['commercial_list']
+        for com in commercial_list:
+            start = int(get_second(com[0][1]) / 60)
+            end = int(get_second(com[1][1]) / 60)
+            if start >= 60:
+                continue
+            if end >= 60:
+                end = 59
+            for i in range(start, end+1):
+                counts[i] += 1
+    
+    plt.figure(1)
+    plt.bar(time, counts)
+    plt.xlabel('video time (min)')
+    plt.ylabel('number of commercials hit')
+    plt.title(show_name)
+#     plt.show()
+    plt.savefig('../result/fig/'+show_name+'_dis.png')
+
+    max_com = int(np.max(show_group['com_counts']))    
+    y = np.bincount(show_group['com_counts'].astype(int))
+    x = np.arange(max_com+1)
+    y = y / show_group['com_counts'].shape[0] * 100
+    plt.figure(2)
+    plt.bar(x, y)
+    plt.xlabel('number of commercials blocks per hour')
+    plt.ylabel('percent of videos (%)')
+    plt.title(show_name)
+#     plt.show()  
+    plt.savefig('../result/fig/'+show_name+'_num.png')
+    
+    num_seg = 1000
+    counts = np.zeros(num_seg)
+    for cvg in show_group['com_cvgs']:
+        seg = int(cvg * num_seg)
+        counts[seg] += 1
+    counts = counts / show_group['com_cvgs'].shape[0] * 100
+    plt.figure(3)
+    plt.bar(np.arange(num_seg) / num_seg * 100, counts)
+    plt.xlabel('commercial coverage (%)')
+    plt.ylabel('percent of videos (%)')
+    plt.title(show_name)
+#     plt.show()  
+    plt.savefig('../result/fig/'+show_name+'_cvg.png')
+
+    
+    
             
