@@ -580,3 +580,108 @@ def search_commercial_multithread(video_list_path, commercial_dict_path, nthread
         commercial_dict = {**commercial_dict, **commercial_dict_tmp}
         
     pickle.dump(commercial_dict, open("../data/commercial_dict.pkl", "wb" ))
+    
+def post_process_result():
+    commercial_dict = pickle.load(open('../data/commercial_dict.pkl', 'rb'))
+    video_meta_dict = pickle.load(open('../data/video_meta_dict.pkl', 'rb'))
+    text_ratio_dict = pickle.load(open('../data/ratio_dict.pkl', 'rb'))
+    
+    total = 35722.0
+    video_list = sorted(commercial_dict.keys())
+    # remove video shorter than 10 min
+    cnt = 0
+    for video in video_list:
+        if video in commercial_dict and video_meta_dict[video]['video_length'] < 600:
+            cnt += 1
+            del commercial_dict[video]
+    print("short videos: ", cnt, cnt/total)
+    
+    # remove video missing transcript more than 40%
+    cnt = 0
+    for video in video_list:
+        if video in commercial_dict and text_ratio_dict[video] < 0.6:
+            cnt += 1
+            del commercial_dict[video]
+    print("incomplete transcript: ", cnt, cnt/total)
+    
+    # group all the videos by show name
+    show_group_stat = {}
+    for video_name in video_list:
+        station_name = video_name.split('_')[0]
+        if station_name == 'CNNW':
+            show_name = video_name[21:]
+        elif station_name == 'FOXNEWSW':
+            show_name = video_name[25:]
+        elif station_name == 'MSNBCW':
+            show_name = video_name[23:]
+        if not show_name in show_group_stat:
+            show_group_stat[show_name] = []
+        show_group_stat[show_name].append(video_name)
+#         show_group_stat[show_name][video_name]['commercial_list'] = commercial_dict[video_name]
+
+    # remove type of show which contains less than 10 videos
+    cnt = 0
+    for show in sorted(show_group_stat):
+        num_videos = len(show_group_stat[show])
+        if num_videos < 10:
+            cnt += num_videos
+            for video in show_group_stat[show]:
+                if video in commercial_dict:
+                    del commercial_dict[video]
+    print("uncommon show: ", cnt, cnt/total)        
+        
+    # remove video which has commercial block more than 7 per hour
+    cnt = 0
+    for video in video_list:
+        if video in commercial_dict:
+            num_hour = np.round(1. * video_meta_dict[video]['video_length'] / 3600)
+            if num_hour == 0:
+                num_hour = 1
+            coms = len(commercial_dict[video]) / num_hour
+            if coms > 7:
+                cnt += 1
+                del commercial_dict[video]
+    #             print(video, num_hour, coms)
+    print("many commercial blocks: ", cnt, cnt/total)
+    
+    # remove video which has commercial coverage higher than 60%
+    cnt = 0
+    for video in video_list:
+        if video in commercial_dict:
+            com_len = 0
+            for com in commercial_dict[video]:
+                com_len += get_time_difference(com[0][1], com[1][1])
+            cvg = 1. * com_len / video_meta_dict[video]['video_length']
+            if cvg > 0.5:
+                cnt += 1
+    #             print(video_name, com_len, video_meta_dict[video_name]['video_length'])
+                del commercial_dict[video]
+    print("high commercial coverage: ", cnt, cnt/total)
+    
+    # remove Documentary
+    cnt = 0
+    for video in video_list:
+        if video in commercial_dict and video.find('Dateline_Extra') != -1:
+            cnt += 1
+            del commercial_dict[video]
+    print("documentary: ", cnt, cnt/total)
+    
+    # remove commercial blocks longer than video length
+    cnt = 0
+    for video in video_list:
+        if video in commercial_dict:
+            i = 0
+            delete = False
+            while i < len(commercial_dict[video]):
+                com = commercial_dict[video][i]
+                if get_second(com[1][1]) > video_meta_dict[video]['video_length']:
+                    del commercial_dict[video][i]
+                    delete = True
+                else:
+                    i += 1
+            if delete:
+                cnt += 1
+    print("too long transcript: ", cnt)
+    
+    print(len(commercial_dict))
+    pickle.dump(commercial_dict, open('../data/commercial_dict_clean.pkl', 'wb'))
