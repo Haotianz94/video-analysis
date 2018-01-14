@@ -11,7 +11,6 @@ import threading
 # import xml.etree.ElementTree as ET
 from utility import *
 
-
 def load_transcript(srt_path, w2v_model, SEGTIME):
     # Load transcripts
     subs = pysrt.open(srt_path)
@@ -109,7 +108,9 @@ def count_name(text, name):
         if start == -1:
             break
         else:
-            if text[start+ln] != ':' and not text[start+ln].isalpha():
+            if start+ln < len(text) and text[start+ln] != ':' and not text[start+ln].isalpha():
+                cnt += 1
+            elif start+ln == len(text):
                 cnt += 1
     return cnt
 
@@ -227,7 +228,7 @@ def assign_topic_detail(text_seg, text_seg_words, topic_dict, keywords, w2v_mode
         print("======================================================================")  
     return topic_list
     
-def assign_topic(tex_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGTIME):
+def assign_topic(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGTIME):
     num_seg = len(text_seg_words)
     num_key = len(keywords)
     topic_list = {}
@@ -352,7 +353,7 @@ def solve_single_video(video_name, topic_dict, keywords, w2v_model, SEGTIME, sho
     if show_detail:
         topic_list = assign_topic_detail(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGTIME)
     else:
-        topic_list = assign_topic(tex_seg, text_seg_words, topic_dict, keywords, SEGTIME)
+        topic_list = assign_topic(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGTIME)
     return topic_list
 
 def test_single_video(video_name, topic_dict, keywords, w2v_model):
@@ -360,23 +361,22 @@ def test_single_video(video_name, topic_dict, keywords, w2v_model):
     topic_list = solve_single_video(video_name, topic_dict, keywords, w2v_model, 180, show_detail=True)
     return topic_list
 
-def assign_topic_t(video_list, topic_dict_path, w2v_model, thread_id):
+def assign_topic_t(video_list, topic_dict_path, thread_id):
     print("Thread %d start computing..." % (thread_id))
     topic_dict_res = {}
     
+    w2v_model = gensim.models.KeyedVectors.load_word2vec_format('../data/GoogleNews-vectors-negative300.bin', binary=True)
     topic_dict, keywords = load_topic_from_dict(w2v_model)
-    
     for i in range(len(video_list)):
         video_name = video_list[i]
         print("Thread %d start %dth video: %s" % (thread_id, i, video_name))
-        topic_list = solve_single_video(video_name, topic_dict, keywords, w2v_model, 180)
+        topic_list = solve_single_video(video_name, topic_dict, keywords, w2v_model, 180, False)
         
         if topic_list is None:
             continue
             
         topic_dict_res[video_name] = topic_list
-        if i % 100 == 0:
-            pickle.dump(topic_dict_res, open(topic_dict_path, "wb" ))
+        pickle.dump(topic_dict_res, open(topic_dict_path, "wb" ))
     pickle.dump(topic_dict_res, open(topic_dict_path, "wb" ))
     print("Thread %d finished computing..." % (thread_id))
 
@@ -405,14 +405,15 @@ def assign_topic_multithread(video_list_path, topic_dict_path, nthread=16):
     for i in range(nthread):
         topic_dict_list.append('../tmp/topic_dict_' + str(i) + '.pkl')
     
-    w2v_model = gensim.models.KeyedVectors.load_word2vec_format('../data/GoogleNews-vectors-negative300.bin', binary=True)
+#     w2v_model = gensim.models.KeyedVectors.load_word2vec_format('../data/GoogleNews-vectors-negative300.bin', binary=True)
+#     topic_dict, keywords = load_topic_from_dict(w2v_model)
     thread_list = []
     for i in range(nthread):
         if i != nthread - 1:
             video_list_t = video_list[i*num_video_t : (i+1)*num_video_t]
         else:
             video_list_t = video_list[i*num_video_t : ]
-        t = threading.Thread(target=assign_topic_t, args=(video_list_t, topic_dict_list[i], w2v_model, i,))
+        t = threading.Thread(target=assign_topic_t, args=(video_list_t, topic_dict_list[i], i,))
         t.setDaemon(True)
         thread_list.append(t)
     
@@ -428,6 +429,6 @@ def assign_topic_multithread(video_list_path, topic_dict_path, nthread=16):
         topic_dict_tmp = pickle.load(open(path, "rb" ))
         topic_dict = {**topic_dict, **topic_dict_tmp}
         
-    pickle.dump(topic_dict, open("../data/topic_dict.pkl", "wb" ))    
+    pickle.dump(topic_dict, open(topic_dict_path, "wb" ))    
     
     
