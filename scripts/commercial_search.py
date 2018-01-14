@@ -6,10 +6,11 @@ import pickle
 from matplotlib import pyplot as plt
 from pathlib import Path
 import math
+import threading
+import codecs
 from utility import *
 from check import *
 from compute_histogram import *
-import codecs
 
 def load_commercial_groundtruth():
     commercial_gt = {}
@@ -126,7 +127,6 @@ def load_single_video(video_name, video_meta_dict, black_frame_dict):
     for sub in subs:
         transcript.append((sub.text, tuple(sub.start)[:3], tuple(sub.end)[:3]))
         text_length += get_time_difference(transcript[-1][1], transcript[-1][2])            
-    print(text_length)
     
     # check transcript completeness
     video_length = video_desp['video_length']
