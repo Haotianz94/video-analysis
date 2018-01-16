@@ -8,6 +8,7 @@ from pathlib import Path
 import codecs
 import math
 import threading
+import multiprocessing as mp
 # import xml.etree.ElementTree as ET
 from utility import *
 
@@ -201,6 +202,7 @@ def assign_topic_detail(text_seg, text_seg_words, topic_dict, keywords, w2v_mode
             if loc_count[id] > LOC_COUNT and selected_loc < LOC_SELECT:
                 print(topic_dict['location'][id], loc_count[id])
                 topic_list[seg_index]['location'].append(topic_dict['location'][id])
+                selected_loc += 1
             else:
                 break
         for j in range(LOC_SELECT-selected_loc):
@@ -220,6 +222,7 @@ def assign_topic_detail(text_seg, text_seg_words, topic_dict, keywords, w2v_mode
             if org_count[id] > ORG_COUNT and selected_org < ORG_SELECT:
                 print(topic_dict['organization'][id], org_count[id])
                 topic_list[seg_index]['organization'].append(topic_dict['organization'][id])
+                selected_org += 1
             else:
                 break
         for j in range(ORG_SELECT-selected_org):
@@ -302,6 +305,7 @@ def assign_topic(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGT
         for id in loc_max:
             if loc_count[id] > LOC_COUNT and selected_loc < LOC_SELECT:
                 topic_list[seg_index]['location'].append(topic_dict['location'][id])
+                selected_loc += 1
             else:
                 break
         for j in range(LOC_SELECT-selected_loc):
@@ -319,6 +323,7 @@ def assign_topic(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGT
         for id in org_max:
             if org_count[id] > ORG_COUNT and selected_org < ORG_SELECT:
                 topic_list[seg_index]['organization'].append(topic_dict['organization'][id])
+                selected_org += 1
             else:
                 break
         for j in range(ORG_SELECT-selected_org):
@@ -376,7 +381,8 @@ def assign_topic_t(video_list, topic_dict_path, thread_id):
             continue
             
         topic_dict_res[video_name] = topic_list
-        pickle.dump(topic_dict_res, open(topic_dict_path, "wb" ))
+        if i % 20 == 0:
+            pickle.dump(topic_dict_res, open(topic_dict_path, "wb" ))
     pickle.dump(topic_dict_res, open(topic_dict_path, "wb" ))
     print("Thread %d finished computing..." % (thread_id))
 
@@ -431,4 +437,54 @@ def assign_topic_multithread(video_list_path, topic_dict_path, nthread=16):
         
     pickle.dump(topic_dict, open(topic_dict_path, "wb" ))    
     
+def assign_topic_multiprocess(video_list_path, topic_dict_path, nprocess=16):
+    video_list = open(video_list_path).read().split('\n')
+    del video_list[-1]
+    
+    # remove exist videos:
+    dict_file = Path(topic_dict_path)
+    if dict_file.is_file():
+        topic_dict = pickle.load(open(topic_dict_path, "rb" ))
+        video_list = [video for video in video_list if not video in topic_dict]
+    else:
+        topic_dict = {}
+    
+    num_video = len(video_list)
+    print(num_video)
+    if num_video <= nprocess:
+        nprocess = num_video
+        num_video_t = 1
+    else:
+        num_video_t = math.ceil(1. * num_video / nprocess)
+    print(num_video_t)
+    
+    topic_dict_list = []
+    for i in range(nprocess):
+        topic_dict_list.append('../tmp/topic_dict_' + str(i) + '.pkl')
+    
+#     w2v_model = gensim.models.KeyedVectors.load_word2vec_format('../data/GoogleNews-vectors-negative300.bin', binary=True)
+#     topic_dict, keywords = load_topic_from_dict(w2v_model)
+    ctx = mp.get_context('spawn')
+    process_list = []
+    for i in range(nprocess):
+        if i != nprocess - 1:
+            video_list_t = video_list[i*num_video_t : (i+1)*num_video_t]
+        else:
+            video_list_t = video_list[i*num_video_t : ]
+        p = ctx.Process(target=assign_topic_t, args=(video_list_t, topic_dict_list[i], i,))
+        process_list.append(p)
+    
+    for p in process_list:
+        p.start()
+    for p in process_list:
+        p.join()
+    
+    for path in topic_dict_list:
+        dict_file = Path(path)
+        if not dict_file.is_file():
+            continue
+        topic_dict_tmp = pickle.load(open(path, "rb" ))
+        topic_dict = {**topic_dict, **topic_dict_tmp}
+        
+    pickle.dump(topic_dict, open(topic_dict_path, "wb" ))   
     
