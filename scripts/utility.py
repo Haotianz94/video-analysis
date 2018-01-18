@@ -26,6 +26,10 @@ def get_time_from_fid(fid, fps):
     hour = int(minute / 60)
     return (hour, minute % 60, second % 60)
 
+def get_second_from_fid(fid, fps):
+    second = int(fid / fps)
+    return second
+
 def get_fid_from_time(time, fps):
     second = time[0]*3600 + time[1]*60 + time[2]
     fid = int((second + 0.5) * fps)

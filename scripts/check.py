@@ -266,11 +266,13 @@ def get_stat_from_result():
     return show_group_stat, commercial_dict
 
 def check_transcript_ratio():
-    ratio_dict = {}
+    ratio_dict = pickle.load(open('../data/ratio_dict.pkl','rb'))
     video_meta_dict = pickle.load(open('../data/video_meta_dict.pkl', 'rb'))
     cnt = 0
     for line in open('../data/total_video_list.txt', 'r'):
         video_name = line[:-1]
+        if video_name in ratio_dict:
+            continue
         srt_path = '../data/transcripts/' + video_name + '.cc5.srt'
 
         srt_file = Path(srt_path)
@@ -300,7 +302,7 @@ def check_transcript_ratio():
         if cnt % 1000 == 0:
             print(cnt)
         
-    pickle.dump(ratio_dict, open('../data/ratio_dict.pkl', 'wb'))
+    pickle.dump(ratio_dict, open('../data/ratio_dict2.pkl', 'wb'))
     return ratio_dict
     
 def visualize_commercials_per_minute():
@@ -377,6 +379,53 @@ def visualize_show(show_group_stat, show_name):
 #     plt.show()  
     plt.savefig('../result/fig/'+show_name+'_cvg.png')
 
+def check_com_shot_align(com_dict=None, shot_dict=None, com_dict_path='../data/commercial_dict.pkl', shot_dict_path='../data/shot_dict.pkl', num_visualize=100):
+    if com_dict == None:
+        com_dict = pickle.load(open(com_dict_path, 'rb'))
+    if shot_dict == None:
+        shot_dict = pickle.load(open(shot_dict_path, 'rb'))
+    meta_dict = pickle.load(open('../data/video_meta_dict.pkl', 'rb'))
+    commercial_gt = load_commercial_groundtruth()
     
+    randselect = np.random.choice(len(com_dict), num_visualize)
+    video_list = sorted(com_dict)
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    vid = 1
+    for i in randselect:
+        video_name = video_list[i]
+        if not video_name in shot_dict or not video_name in com_dict:
+            continue
+        shot_list = shot_dict[video_name]
+        fps = meta_dict[video_name]['fps']
+        for shot in shot_list:
+            x1 = get_second_from_fid(shot[0], fps)
+#             x2 = get_second_from_fid(shot[1], fps)
+            plt.plot([x1, x1], [vid-0.2, vid+0.2], 'b', linewidth=0.2)
+#             plt.plot([x2, x2], [vid-0.2, vid+0.2], 'b', linewidth=0.5)
+        
+        commercial_list = com_dict[video_name]
+        for com in commercial_list:
+            plt.plot([get_second(com[0][1]), get_second(com[1][1])], [vid, vid], 'r', linewidth=3.0)
+        
+#         groundtruth = commercial_gt[video_name]['span']
+#         for gt in groundtruth:
+#             plt.plot([get_second(gt[0]), get_second(gt[1])], [vid-0.2, vid-0.2], 'g', linewidth=3.0)
+        
+        ax.text(-800, vid, video_name[:24])
+        vid += 1
+        print(vid)
+        if vid > num_visualize:
+            break
+    
+#     legend = plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+    fig.set_size_inches(14, 40)
+    plt.ylim([0, vid])
+    plt.xlim([0, 3700])
+    plt.xlabel('video time (s)')
+    cur_axes = plt.gca()
+    cur_axes.axes.get_yaxis().set_visible(False)
+    plt.show()
+        
     
             
