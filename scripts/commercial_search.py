@@ -10,7 +10,7 @@ import threading
 import multiprocessing as mp
 import codecs
 from utility import *
-from check import *
+from commercial_check import *
 from compute_histogram import *
 
 def load_commercial_groundtruth():

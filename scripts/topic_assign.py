@@ -2,12 +2,12 @@ import numpy as np
 import pysrt
 import gensim
 import textacy
+from textblob import TextBlob
 import pickle
 import time
 from pathlib import Path
 import codecs
 import math
-import threading
 import multiprocessing as mp
 # import xml.etree.ElementTree as ET
 from utility import *
@@ -115,7 +115,7 @@ def count_name(text, name):
                 cnt += 1
     return cnt
 
-def assign_topic_detail(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGTIME):
+def assign_topic(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGTIME, show_detail=False):
     num_seg = len(text_seg_words)
     num_key = len(keywords)
     topic_list = {}
@@ -231,106 +231,6 @@ def assign_topic_detail(text_seg, text_seg_words, topic_dict, keywords, w2v_mode
         print("======================================================================")  
     return topic_list
     
-def assign_topic(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGTIME):
-    num_seg = len(text_seg_words)
-    num_key = len(keywords)
-    topic_list = {}
-    for i in range(num_seg):
-        # remove commercial seg
-        if len(text_seg_words[i]) < SEGTIME/60*10:
-            continue
-
-        seg_index = (i*SEGTIME, (i+1)*SEGTIME)
-        topic_list[seg_index] = {}
-        # topic: subject
-        topic_list[seg_index]['subject'] = []
-        sim_matrix = np.zeros(num_key)
-        for j in range(num_key):
-            avg_sim_key = []
-            for key in keywords[j]:
-                if text_seg_words[i] != []:
-                    sim = [w2v_model.wv.similarity(word, key) for word in text_seg_words[i]]
-                    avg_sim_key.append(np.average(sim))
-                else:
-                    avg_sim_key.append(0)
-            sim_matrix[j] = np.average(avg_sim_key)
-
-        topic_id = sim_matrix.argsort()[::-1]
-        for j in range(5):
-            topic_list[seg_index]['subject'].append(keywords[topic_id[j]])
-
-        # topic: people 
-        LAST_SPECIAL = {'donald trump', 'hillary clinton', 'barack obama'}
-        topic_list[seg_index]['people'] = []
-        people_count = []
-        for people in topic_dict['people']:
-            names = people.split(',')
-            if len(names) == 1:
-                cnt = text_seg[i].count(names[0].lower())
-            else:
-                lastname = names[0].lower()
-                firstname = names[1].lower()
-                last_cnt = count_name(text_seg[i], lastname)
-                full_cnt = count_name(text_seg[i], firstname+' '+lastname)
-                if full_cnt == 0:
-                    if firstname+' '+lastname in LAST_SPECIAL:
-                        cnt = last_cnt
-                    else:
-                        cnt = 0
-                else:
-                    cnt = last_cnt + full_cnt
-            people_count.append(cnt)
-        people_max = np.argsort(people_count)[::-1]
-        PEOPLE_COUNT = 3
-        PEOPLE_SELECT = 3
-        selected_people = 0
-        for id in people_max:
-            if people_count[id] > PEOPLE_COUNT and selected_people < PEOPLE_SELECT:
-                topic_list[seg_index]['people'].append(topic_dict['people'][id])
-                selected_people += 1
-            else:
-                break
-        for j in range(PEOPLE_SELECT-selected_people):
-            topic_list[seg_index]['people'].append(None)
-
-        # topic: location
-        topic_list[seg_index]['location'] = []
-        loc_count = []
-        for loc in topic_dict['location']:
-            loc_count.append(text_seg[i].count(loc.lower()))
-        loc_max = np.argsort(loc_count)[::-1]
-        LOC_COUNT = 2
-        LOC_SELECT = 2
-        selected_loc = 0
-        for id in loc_max:
-            if loc_count[id] > LOC_COUNT and selected_loc < LOC_SELECT:
-                topic_list[seg_index]['location'].append(topic_dict['location'][id])
-                selected_loc += 1
-            else:
-                break
-        for j in range(LOC_SELECT-selected_loc):
-            topic_list[seg_index]['location'].append(None)
-
-        # topic: location
-        topic_list[seg_index]['organization'] = []
-        org_count = []
-        for org in topic_dict['organization']:
-            org_count.append(text_seg[i].count(org.lower()))
-        org_max = np.argsort(org_count)[::-1]
-        ORG_COUNT = 2
-        ORG_SELECT = 2
-        selected_org = 0
-        for id in org_max:
-            if org_count[id] > ORG_COUNT and selected_org < ORG_SELECT:
-                topic_list[seg_index]['organization'].append(topic_dict['organization'][id])
-                selected_org += 1
-            else:
-                break
-        for j in range(ORG_SELECT-selected_org):
-            topic_list[seg_index]['organization'].append(None)
-
-    return topic_list    
-
 def solve_single_video(video_name, topic_dict, keywords, w2v_model, SEGTIME, show_detail=True):
     # load transcript
     srt_path = '../data/transcripts/' + video_name + '.cc5.srt'
@@ -355,10 +255,7 @@ def solve_single_video(video_name, topic_dict, keywords, w2v_model, SEGTIME, sho
 #          return None    
     
     text_seg, text_seg_words = load_transcript(srt_path, w2v_model, SEGTIME)
-    if show_detail:
-        topic_list = assign_topic_detail(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGTIME)
-    else:
-        topic_list = assign_topic(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGTIME)
+    topic_list = assign_topic(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGTIME, show_detail)
     return topic_list
 
 def test_single_video(video_name, topic_dict, keywords, w2v_model):
@@ -385,57 +282,6 @@ def assign_topic_t(video_list, topic_dict_path, thread_id):
             pickle.dump(topic_dict_res, open(topic_dict_path, "wb" ))
     pickle.dump(topic_dict_res, open(topic_dict_path, "wb" ))
     print("Thread %d finished computing..." % (thread_id))
-
-def assign_topic_multithread(video_list_path, topic_dict_path, nthread=16):
-    video_list = open(video_list_path).read().split('\n')
-    del video_list[-1]
-    
-    # remove exist videos:
-    dict_file = Path(topic_dict_path)
-    if dict_file.is_file():
-        topic_dict = pickle.load(open(topic_dict_path, "rb" ))
-        video_list = [video for video in video_list if not video in topic_dict]
-    else:
-        topic_dict = {}
-    
-    num_video = len(video_list)
-    print(num_video)
-    if num_video <= nthread:
-        nthread = num_video
-        num_video_t = 1
-    else:
-        num_video_t = math.ceil(1. * num_video / nthread)
-    print(num_video_t)
-    
-    topic_dict_list = []
-    for i in range(nthread):
-        topic_dict_list.append('../tmp/topic_dict_' + str(i) + '.pkl')
-    
-#     w2v_model = gensim.models.KeyedVectors.load_word2vec_format('../data/GoogleNews-vectors-negative300.bin', binary=True)
-#     topic_dict, keywords = load_topic_from_dict(w2v_model)
-    thread_list = []
-    for i in range(nthread):
-        if i != nthread - 1:
-            video_list_t = video_list[i*num_video_t : (i+1)*num_video_t]
-        else:
-            video_list_t = video_list[i*num_video_t : ]
-        t = threading.Thread(target=assign_topic_t, args=(video_list_t, topic_dict_list[i], i,))
-        t.setDaemon(True)
-        thread_list.append(t)
-    
-    for t in thread_list:
-        t.start()
-    for t in thread_list:
-        t.join()
-    
-    for path in topic_dict_list:
-        dict_file = Path(path)
-        if not dict_file.is_file():
-            continue
-        topic_dict_tmp = pickle.load(open(path, "rb" ))
-        topic_dict = {**topic_dict, **topic_dict_tmp}
-        
-    pickle.dump(topic_dict, open(topic_dict_path, "wb" ))    
     
 def assign_topic_multiprocess(video_list_path, topic_dict_path, nprocess=16):
     video_list = open(video_list_path).read().split('\n')
@@ -486,5 +332,8 @@ def assign_topic_multiprocess(video_list_path, topic_dict_path, nprocess=16):
         topic_dict_tmp = pickle.load(open(path, "rb" ))
         topic_dict = {**topic_dict, **topic_dict_tmp}
         
-    pickle.dump(topic_dict, open(topic_dict_path, "wb" ))   
+    pickle.dump(topic_dict, open(topic_dict_path, "wb" ))
+    
+# def sentiment_analysis():
+    
     
