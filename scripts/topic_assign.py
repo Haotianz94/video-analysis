@@ -12,7 +12,71 @@ import multiprocessing as mp
 # import xml.etree.ElementTree as ET
 from utility import *
 
-def load_transcript(srt_path, w2v_model, SEGTIME):
+def get_transcript_seg(start, end, transcript):
+    TRANSCRIPT_DELAY = 6
+    SEGTIME = 180
+    MIN_THRESH = 30
+    replace_list = ['\n', '>', '.', ',', '?', '!', '-', '(', ')', '[', ']']
+    text_seg = []
+    
+    # skip commercial block
+    for i in range(len(transcript)):
+        t = transcript[i]
+        if get_second(t[2]) - TRANSCRIPT_DELAY <= start:
+            continue
+        else:
+            break
+    transcript = transcript[i:]
+        
+    if end == None:
+        seg_start = start
+        seg_end = start + SEGTIME
+        text = ''
+        for t in transcript:
+            if get_second(t[1]) - TRANSCRIPT_DELAY < seg_end:
+                text += t[0] + ' '
+            else:
+#                 print(seg_end)
+                for token in replace_list:
+                    text = text.replace(token, ' ')
+                text = text.lower()
+                text_seg.append({'text':text, 'seg':(seg_start, seg_end)})
+                text = ''
+                seg_start = seg_end
+                seg_end += SEGTIME
+        if text != '':
+            for token in replace_list:
+                text = text.replace(token, ' ')
+            text = text.lower()
+            text_seg.append({'text':text, 'seg':(seg_start, get_second(t[2]))})
+        return text_seg, -1        
+    
+    seg_start = start
+    if start + SEGTIME + MIN_THRESH < end:
+        seg_end = start + SEGTIME
+    else:
+        seg_end = end
+    text = ''
+    for i in range(len(transcript)):
+        t = transcript[i]
+        if get_second(t[1]) - TRANSCRIPT_DELAY < seg_end:
+            text += t[0] + ' '
+        else:
+#             print(seg_end)
+            for token in replace_list:
+                text = text.replace(token, ' ')
+            text = text.lower()
+            text_seg.append({'text':text, 'seg':(seg_start, seg_end)})
+            text = ''
+            if seg_end == end:
+                return text_seg, i
+            seg_start = seg_end
+            if seg_end + SEGTIME + MIN_THRESH < end:
+                seg_end += SEGTIME
+            else:
+                seg_end = end
+
+def load_transcript(srt_path, w2v_model, com_list):    
     # Load transcripts
     subs = pysrt.open(srt_path)
     transcript = []
@@ -20,31 +84,36 @@ def load_transcript(srt_path, w2v_model, SEGTIME):
         transcript.append((sub.text, tuple(sub.start)[:3], tuple(sub.end)[:3]))
     
     # split transcript into segment
-    replace_list = ['\n', '>', '.', ',', '?', '!', '\'', '"', '-', '(', ')']
-    TRANSCRIPT_DELAY = 6
     text_seg = []
     text = ''
-    seg_end = SEGTIME
-    for t in transcript:
-        if get_second(t[1]) - TRANSCRIPT_DELAY < seg_end:
-            text += t[0] + ' '
-        else:
-            for token in replace_list:
-                text = text.replace(token, ' ')
-            text = text.lower()
-            text_seg.append(text)
-            text = ''
-            seg_end += SEGTIME
+    lc = len(com_list)
+    if lc == 0:
+        text_seg = get_transcript_seg(0, None, transcript)
+    else:
+        for c in range(lc):
+            if c == 0:
+                seg, i = get_transcript_seg(0, get_second(com_list[0][0][1]), transcript)
+            else:
+                seg, i = get_transcript_seg(get_second(com_list[c-1][1][1]), get_second(com_list[c][0][1]), transcript)
+            text_seg += seg
+            transcript = transcript[i:]
+        seg, i = get_transcript_seg(get_second(com_list[-1][1][1]), None, transcript)
+        text_seg += seg
     
     # Extract PROPN and NOUN using textacy
-    docs = [textacy.doc.Doc(text, lang=u'en') for text in text_seg]
+    docs = [textacy.doc.Doc(t['text'], lang=u'en') for t in text_seg]
     corpus = textacy.Corpus(u'en', docs=docs)
 
-    text_seg_words = [list(textacy.extract.words(doc, filter_nums=True, include_pos=['PROPN', 'NOUN'])) for doc in corpus.docs]
-    # remove word not in w2v model
-    text_seg_words = [ [str(word) for word in seg if len(str(word)) > 1 and str(word) in w2v_model.vocab] for seg in text_seg_words]
+    for i in range(len(text_seg)):
+        words = list(textacy.extract.words(corpus.docs[i], filter_nums=True, include_pos=['PROPN', 'NOUN']))
+        words = [str(word) for word in words if len(str(word)) > 1 and str(word) in w2v_model.vocab]
+        text_seg[i]['words'] = words
     
-    return text_seg, text_seg_words
+    
+#     text_seg_words = [list(textacy.extract.words(doc, filter_nums=True, include_pos=['PROPN', 'NOUN'])) for doc in corpus.docs]
+#     # remove word not in w2v model
+#     text_seg_words = [ [str(word) for word in seg if len(str(word)) > 1 and str(word) in w2v_model.vocab] for seg in text_seg_words]
+    return text_seg
 
 def load_subject_from_meta(meta_path, w2v_model):
     # Extract keywords from video meta
@@ -115,57 +184,77 @@ def count_name(text, name):
                 cnt += 1
     return cnt
 
-def assign_topic(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGTIME, show_detail=False):
-    num_seg = len(text_seg_words)
-    num_key = len(keywords)
+def assign_topic(text_seg, topic_dict, w2v_model, show_detail=False):
+    num_seg = len(text_seg)
+#     num_key = len(topic_dict['subject'])
     topic_list = {}
-    for i in range(num_seg):
-        print('Segment: %d-%d min\n' % (i*SEGTIME/60, (i+1)*SEGTIME/60))
+    for seg in text_seg:
         # remove commercial seg
-        if len(text_seg_words[i]) < SEGTIME/60*10:
+        if len(seg['words']) < 30:
             continue
 
-        seg_index = (i*SEGTIME, (i+1)*SEGTIME)
+        seg_index = seg['seg']
         topic_list[seg_index] = {}
         # topic: subject
-        print("### topic: subject ###")
+        if show_detail:
+            print('\n',seg_index)
+            print("\n### subject ###")
         topic_list[seg_index]['subject'] = []
-        sim_matrix = np.zeros(num_key)
-        for j in range(num_key):
-            avg_sim_key = []
-            for key in keywords[j]:
-                if text_seg_words[i] != []:
-                    sim = [w2v_model.wv.similarity(word, key) for word in text_seg_words[i]]
-                    avg_sim_key.append(np.average(sim))
-                else:
-                    avg_sim_key.append(0)
-            sim_matrix[j] = np.average(avg_sim_key)
+        similiraty = []
+        for sub in topic_dict['subject']:
+            sim = [w2v_model.wv.similarity(word, sub) for word in seg['words']]
+            similiraty.append(np.average(sim))
 
-        topic_id = sim_matrix.argsort()[::-1]
+        subject_id = np.argsort(similiraty)[::-1]
         for j in range(5):
-            print(sim_matrix[topic_id[j]], keywords[topic_id[j]])
-            topic_list[seg_index]['subject'].append(keywords[topic_id[j]])
-        print("\ntopic related words:")
-        key = keywords[topic_id[0]][0]
-        sim = np.array([w2v_model.wv.similarity(word, key) for word in text_seg_words[i]])
-        sim_word_id = sim.argsort()[::-1]
-        sim_words = [text_seg_words[i][sim_word_id[j]] for j in range(20) if j < len(text_seg_words[i])]
-        print(sim_words)
-
+            if show_detail:
+                print(similiraty[subject_id[j]], topic_dict['subject'][subject_id[j]])
+            topic_list[seg_index]['subject'].append(topic_dict['subject'][subject_id[j]])
+        if show_detail:
+            print("\nsubject related words:")
+            key = topic_dict['subject'][subject_id[0]]
+            sim = np.array([w2v_model.wv.similarity(word, key) for word in seg['words']])
+            sim_word_id = sim.argsort()[::-1]
+            sim_words = [seg['words'][sim_word_id[j]] for j in range(20) if j < len(seg['words'])]
+            print(sim_words)
+        
+        # topic: phrase
+        if show_detail:
+            print("\n### phrase ###")
+        topic_list[seg_index]['phrase'] = []
+        phrase_count = []
+        for phrase in topic_dict['phrase']:
+            phrase_count.append(seg['text'].count(phrase.lower()))
+        phrase_max = np.argsort(phrase_count)[::-1]
+        PHRASE_COUNT = 1
+        PHRASE_SELECT = 4
+        selected_phrase = 0
+        for id in phrase_max:
+            if phrase_count[id] > PHRASE_COUNT and selected_phrase < PHRASE_SELECT:
+                if show_detail:
+                    print(topic_dict['phrase'][id], phrase_count[id])
+                topic_list[seg_index]['phrase'].append(topic_dict['phrase'][id])
+                selected_phrase += 1
+            else:
+                break
+        for j in range(PHRASE_SELECT-selected_phrase):
+            topic_list[seg_index]['phrase'].append(None)
+        
         # topic: people 
         LAST_SPECIAL = {'donald trump', 'hillary clinton', 'barack obama'}
-        print("\n### topic: people ###")
+        if show_detail:
+            print("\n### people ###")
         topic_list[seg_index]['people'] = []
         people_count = []
         for people in topic_dict['people']:
             names = people.split(',')
             if len(names) == 1:
-                cnt = text_seg[i].count(names[0].lower())
+                cnt = seg['text'].count(names[0].lower())
             else:
                 lastname = names[0].lower()
                 firstname = names[1].lower()
-                last_cnt = count_name(text_seg[i], lastname)
-                full_cnt = count_name(text_seg[i], firstname+' '+lastname)
+                last_cnt = count_name(seg['text'], lastname)
+                full_cnt = count_name(seg['text'], firstname+' '+lastname)
                 if full_cnt == 0:
                     if firstname+' '+lastname in LAST_SPECIAL:
                         cnt = last_cnt
@@ -180,7 +269,8 @@ def assign_topic(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGT
         selected_people = 0
         for id in people_max:
             if people_count[id] > PEOPLE_COUNT and selected_people < PEOPLE_SELECT:
-                print(topic_dict['people'][id], people_count[id])
+                if show_detail:
+                    print(topic_dict['people'][id], people_count[id])
                 topic_list[seg_index]['people'].append(topic_dict['people'][id])
                 selected_people += 1
             else:
@@ -189,18 +279,20 @@ def assign_topic(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGT
             topic_list[seg_index]['people'].append(None)
 
         # topic: location
-        print("\n### topic: location ###")
+        if show_detail:
+            print("\n### location ###")
         topic_list[seg_index]['location'] = []
         loc_count = []
         for loc in topic_dict['location']:
-            loc_count.append(text_seg[i].count(loc.lower()))
+            loc_count.append(seg['text'].count(loc.lower()))
         loc_max = np.argsort(loc_count)[::-1]
         LOC_COUNT = 2
         LOC_SELECT = 2
         selected_loc = 0
         for id in loc_max:
             if loc_count[id] > LOC_COUNT and selected_loc < LOC_SELECT:
-                print(topic_dict['location'][id], loc_count[id])
+                if show_detail:
+                    print(topic_dict['location'][id], loc_count[id])
                 topic_list[seg_index]['location'].append(topic_dict['location'][id])
                 selected_loc += 1
             else:
@@ -209,29 +301,39 @@ def assign_topic(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGT
             topic_list[seg_index]['location'].append(None)
 
         # topic: location
-        print("\n### topic: organization ###")
+        if show_detail:
+            print("\n### organization ###")
         topic_list[seg_index]['organization'] = []
         org_count = []
         for org in topic_dict['organization']:
-            org_count.append(text_seg[i].count(org.lower()))
+            org_count.append(seg['text'].count(org.lower()))
         org_max = np.argsort(org_count)[::-1]
         ORG_COUNT = 2
         ORG_SELECT = 2
         selected_org = 0
         for id in org_max:
             if org_count[id] > ORG_COUNT and selected_org < ORG_SELECT:
-                print(topic_dict['organization'][id], org_count[id])
+                if show_detail:
+                    print(topic_dict['organization'][id], org_count[id])
                 topic_list[seg_index]['organization'].append(topic_dict['organization'][id])
                 selected_org += 1
             else:
                 break
         for j in range(ORG_SELECT-selected_org):
             topic_list[seg_index]['organization'].append(None)
-
-        print("======================================================================")  
+        
+        # sentiment analysis
+        if show_detail:
+            print("\n### sentiment ###")
+        blob = TextBlob(seg['text'])
+        sen = blob.sentences[0].sentiment
+        if show_detail:
+            print(sen)
+        topic_list[seg_index]['sentiment'] = (sen.polarity, sen.subjectivity)
+        
     return topic_list
     
-def solve_single_video(video_name, topic_dict, keywords, w2v_model, SEGTIME, show_detail=True):
+def solve_single_video(video_name, topic_dict, com_list, w2v_model, show_detail=True):
     # load transcript
     srt_path = '../data/transcripts/' + video_name + '.cc5.srt'
     srt_file = Path(srt_path)
@@ -254,13 +356,13 @@ def solve_single_video(video_name, topic_dict, keywords, w2v_model, SEGTIME, sho
 #         print("Transcript not encoded in utf-8!!!")
 #          return None    
     
-    text_seg, text_seg_words = load_transcript(srt_path, w2v_model, SEGTIME)
-    topic_list = assign_topic(text_seg, text_seg_words, topic_dict, keywords, w2v_model, SEGTIME, show_detail)
+    text_seg = load_transcript(srt_path, w2v_model, com_list)
+    topic_list = assign_topic(text_seg, topic_dict, w2v_model, show_detail)
     return topic_list
 
-def test_single_video(video_name, topic_dict, keywords, w2v_model):
+def test_single_video(video_name, topic_dict, com_dict, w2v_model):
     
-    topic_list = solve_single_video(video_name, topic_dict, keywords, w2v_model, 180, show_detail=True)
+    topic_list = solve_single_video(video_name, topic_dict, com_dict[video_name], w2v_model, show_detail=True)
     return topic_list
 
 def assign_topic_t(video_list, topic_dict_path, thread_id):
@@ -268,11 +370,12 @@ def assign_topic_t(video_list, topic_dict_path, thread_id):
     topic_dict_res = {}
     
     w2v_model = gensim.models.KeyedVectors.load_word2vec_format('../data/GoogleNews-vectors-negative300.bin', binary=True)
-    topic_dict, keywords = load_topic_from_dict(w2v_model)
+    topic_dict = pickle.load(open('../data/topic_dict.pkl', 'rb'))
+    com_dict = pickle.load(open('../data/commercial_dict.pkl', 'rb'))
     for i in range(len(video_list)):
         video_name = video_list[i]
         print("Thread %d start %dth video: %s" % (thread_id, i, video_name))
-        topic_list = solve_single_video(video_name, topic_dict, keywords, w2v_model, 180, False)
+        topic_list = solve_single_video(video_name, topic_dict, com_dict[video_name], w2v_model, False)
         
         if topic_list is None:
             continue
