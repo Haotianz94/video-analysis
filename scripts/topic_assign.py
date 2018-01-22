@@ -19,6 +19,8 @@ def get_transcript_seg(start, end, transcript):
     replace_list = ['\n', '>', '.', ',', '?', '!', '-', '(', ')', '[', ']']
     text_seg = []
     
+    if len(transcript) == 0:
+        return [], 0
     # skip commercial block
     for i in range(len(transcript)):
         t = transcript[i]
@@ -49,7 +51,7 @@ def get_transcript_seg(start, end, transcript):
                 text = text.replace(token, ' ')
             text = text.lower()
             text_seg.append({'text':text, 'seg':(seg_start, get_second(t[2]))})
-        return text_seg, -1        
+        return text_seg, len(transcript)        
     
     seg_start = start
     if start + SEGTIME + MIN_THRESH < end:
@@ -75,6 +77,12 @@ def get_transcript_seg(start, end, transcript):
                 seg_end += SEGTIME
             else:
                 seg_end = end
+    if text != '':      
+        for token in replace_list:
+            text = text.replace(token, ' ')
+        text = text.lower()
+        text_seg.append({'text':text, 'seg':(seg_start, get_second(t[2]) )})
+    return text_seg, len(transcript)        
 
 def load_transcript(srt_path, w2v_model, com_list):    
     # Load transcripts
@@ -88,13 +96,13 @@ def load_transcript(srt_path, w2v_model, com_list):
     text = ''
     lc = len(com_list)
     if lc == 0:
-        text_seg = get_transcript_seg(0, None, transcript)
+        text_seg, i = get_transcript_seg(0, None, transcript)
     else:
         for c in range(lc):
             if c == 0:
                 seg, i = get_transcript_seg(0, get_second(com_list[0][0][1]), transcript)
             else:
-                seg, i = get_transcript_seg(get_second(com_list[c-1][1][1]), get_second(com_list[c][0][1]), transcript)
+                seg, i =get_transcript_seg(get_second(com_list[c-1][1][1]),get_second(com_list[c][0][1]), transcript)
             text_seg += seg
             transcript = transcript[i:]
         seg, i = get_transcript_seg(get_second(com_list[-1][1][1]), None, transcript)
@@ -375,6 +383,8 @@ def assign_topic_t(video_list, topic_dict_path, thread_id):
     for i in range(len(video_list)):
         video_name = video_list[i]
         print("Thread %d start %dth video: %s" % (thread_id, i, video_name))
+        if not video_name in com_dict:
+            continue
         topic_list = solve_single_video(video_name, topic_dict, com_dict[video_name], w2v_model, False)
         
         if topic_list is None:
