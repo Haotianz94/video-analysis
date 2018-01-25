@@ -151,3 +151,68 @@ def plot_single_video(topic_list, topic, subject):
 #     cur_axes = plt.gca()
 #     cur_axes.axes.get_yaxis().set_visible(False)
     plt.show()
+    
+def filter_single_topic(topic_res, topic, ttype, start_date, end_date, show_name=None, station_name=None):
+    filtered_topic_res = {}
+    for video_name in sorted(topic_res):
+        split = video_name.split('_')
+        date = get_date_from_string(split[1])
+        if compare_date(start_date, date) > 0 or compare_date(date, end_date) > 0:
+            continue
+        station = split[0][:-1]
+        if station == 'CNN':
+            show = video_name[21:]
+        elif station == 'FOXNEWS':
+            show = video_name[25:]
+        elif station == 'MSNBC':
+            show = video_name[23:]
+        if show_name != None and show != show_name:
+            continue
+        
+        for seg, value in topic_res[video_name].items():
+#             if topic == value[ttype][0]:
+            if topic in value[ttype]:
+                if not video_name in filtered_topic_res:
+                    filtered_topic_res[video_name] = {}
+                filtered_topic_res[video_name][seg] = value
+    return filtered_topic_res
+
+def find_cooccurrence(topic_res, topic_query, type_query, start_date, end_date, show_name=None, station_name=None, top_k=20):
+    filtered_topic_res = filter_single_topic(topic_res, topic_query, type_query, start_date, end_date, show_name, station_name)
+    topic_dict = pickle.load(open("../data/topic_dict.pkl", 'rb'))
+    score = {}
+    topic_types = sorted(topic_dict)
+    topic2id = {}
+    for topic_type in topic_types:
+        score[topic_type] = np.zeros(len(topic_dict[topic_type]))
+        topic2id[topic_type] = {}
+        idx = 0
+        for t in topic_dict[topic_type]:
+            topic2id[topic_type][t] = idx
+            idx += 1
+    
+    for video_name in sorted(filtered_topic_res):
+        for seg, value in filtered_topic_res[video_name].items():
+            for topic_type in topic_types:
+                pnt = len(value[topic_type])
+                for t in value[topic_type]:
+                    if t == None or t == topic_query:
+                        continue
+                    score[topic_type][topic2id[topic_type][t]] += pnt
+                    pnt -= 1
+    
+    
+    for topic_type in topic_types:
+        top_id = np.argsort(score[topic_type])[::-1]
+        fig = plt.figure()
+        fig.set_size_inches(16, 7)
+        score_plot = []
+        topic_plot = []
+        max_score = score[topic_type][top_id[0]]
+        for i in range(top_k):
+            score_plot.append(1. * score[topic_type][top_id[i]] / max_score)
+            topic_plot.append(topic_dict[topic_type][top_id[i]])
+        plt.bar(np.arange(top_k), score_plot)
+        plt.xticks(np.arange(top_k), topic_plot, rotation=45)
+#         plt.xlabel('closely related '+ topic_type)
+        plt.title('closely related '+ topic_type + ' to ' + topic_query)
