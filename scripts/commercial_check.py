@@ -5,6 +5,7 @@ import pickle
 import pysrt
 from pathlib import Path
 import codecs
+from commercial_search import *
 
 # check functions
 def check_black_in_gt(black_frame_list, groundtruth, fps):
@@ -392,25 +393,24 @@ def check_com_shot_align(com_dict=None, shot_dict=None, com_dict_path='../data/c
     fig = plt.figure()
     ax = fig.add_subplot(111)
     vid = 1
-    for i in randselect:
-        video_name = video_list[i]
+#     for i in randselect:
+#         video_name = video_list[i]
+    for video_name in commercial_gt:
         if not video_name in shot_dict or not video_name in com_dict:
             continue
         shot_list = shot_dict[video_name]
         fps = meta_dict[video_name]['fps']
         for shot in shot_list:
             x1 = get_second_from_fid(shot[0], fps)
-#             x2 = get_second_from_fid(shot[1], fps)
             plt.plot([x1, x1], [vid-0.2, vid+0.2], 'b', linewidth=0.2)
-#             plt.plot([x2, x2], [vid-0.2, vid+0.2], 'b', linewidth=0.5)
         
         commercial_list = com_dict[video_name]
         for com in commercial_list:
-            plt.plot([get_second(com[0][1]), get_second(com[1][1])], [vid, vid], 'r', linewidth=3.0)
+            plt.plot([get_second(com[0][1]), get_second(com[1][1])], [vid, vid], 'r', linewidth=5.0)
         
-#         groundtruth = commercial_gt[video_name]['span']
-#         for gt in groundtruth:
-#             plt.plot([get_second(gt[0]), get_second(gt[1])], [vid-0.2, vid-0.2], 'g', linewidth=3.0)
+        groundtruth = commercial_gt[video_name]['span']
+        for gt in groundtruth:
+            plt.plot([get_second(gt[0]), get_second(gt[1])], [vid-0.2, vid-0.2], 'g', linewidth=5.0)
         
         ax.text(-800, vid, video_name[:24])
         vid += 1

@@ -1,5 +1,17 @@
 import numpy as np
 
+def get_detail_from_video_name(video_name):
+    split = video_name.split('_')
+    date = get_date_from_string(split[1])
+    station = split[0][:-1]
+    if station == 'CNN':
+        show = video_name[21:]
+    elif station == 'FOXNEWS':
+        show = video_name[25:]
+    elif station == 'MSNBC':
+        show = video_name[23:]
+    return date, station, show
+
 def get_date_from_string(str):
     return (int(str[:4]), int(str[4:6]), int(str[6:]))
 
