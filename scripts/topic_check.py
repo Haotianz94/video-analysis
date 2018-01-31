@@ -187,28 +187,48 @@ def find_cooccurrence(topic_res, topic_query, type_query, start_date, end_date, 
         filtered_topic_res = filter_single_topic(topic_res, topic_query, type_query, start_date, end_date, show_name, station_name)
     else:
         filtered_topic_res = topic_res
+    
+    # prepare topic_dict
     topic_dict = pickle.load(open("../data/topic_dict.pkl", 'rb'))
-    score = {}
     topic_types = sorted(topic_dict)
     topic2id = {}
     for topic_type in topic_types:
-        score[topic_type] = np.zeros(len(topic_dict[topic_type]))
         topic2id[topic_type] = {}
         idx = 0
         for t in topic_dict[topic_type]:
             topic2id[topic_type][t] = idx
             idx += 1
     
+    # compute idf
+    count_all = {}
+    num_segs = 0
+    for topic_type in topic_types:
+        count_all[topic_type] = np.zeros(len(topic_dict[topic_type]))
+    for video_name in sorted(topic_res):
+        num_segs += len(topic_res[video_name])
+        for seg, value in topic_res[video_name].items():
+            for topic_type in topic_types:
+                for t in value[topic_type]:
+                    if t != None:
+                        count_all[topic_type][topic2id[topic_type][t]] += 1
+    # compute tf
+    score = {}
+    for topic_type in topic_types:
+        score[topic_type] = np.zeros(len(topic_dict[topic_type]))
     for video_name in sorted(filtered_topic_res):
         for seg, value in filtered_topic_res[video_name].items():
             for topic_type in topic_types:
-                pnt = len(value[topic_type])
-                for t in value[topic_type]:
+                for i in range(len(value[topic_type])):
+                    t = value[topic_type][i]
                     if t == None or t == topic_query:
                         continue
-                    score[topic_type][topic2id[topic_type][t]] += pnt
-                    pnt -= 1
-    
+                    score[topic_type][topic2id[topic_type][t]] += (1.5 - 0.1*i)
+    # compute tf-idf
+    for topic_type in topic_types:
+        for i in range(len(count_all[topic_type])):
+            if count_all[topic_type][i] == 0:
+                count_all[topic_type][i] = num_segs
+        score[topic_type] = score[topic_type] * np.log(1. * num_segs / count_all[topic_type])
     
     for topic_type in topic_types:
         top_id = np.argsort(score[topic_type])[::-1]
