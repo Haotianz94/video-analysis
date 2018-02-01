@@ -208,6 +208,7 @@ def assign_topic(text_seg, topic_dict, w2v_model, show_detail=False):
             print('\n',seg_index)
             print("\n### subject ###")
         topic_list[seg_index]['subject'] = []
+        # by similarity
         similiraty = []
         for sub in topic_dict['subject']:
             sim = [w2v_model.wv.similarity(word, sub) for word in seg['words']]
@@ -225,6 +226,20 @@ def assign_topic(text_seg, topic_dict, w2v_model, show_detail=False):
             sim_word_id = sim.argsort()[::-1]
             sim_words = [seg['words'][sim_word_id[j]] for j in range(20) if j < len(seg['words'])]
             print(sim_words)
+            
+        # by exact match
+#         subject_count = []
+#         for subject in topic_dict['subject']:
+#             subject_count.append(seg['text'].count(subject.lower()))
+#         subject_max = np.argsort(subject_count)[::-1]
+#         SUBJECT_COUNT = 1
+#         for id in subject_max:
+#             if subject_count[id] > SUBJECT_COUNT:
+#                 if show_detail:
+#                     print(topic_dict['subject'][id], subject_count[id])
+#                 topic_list[seg_index]['subject'].append(topic_dict['subject'][id])
+#             else:
+#                 break
         
         # topic: phrase
         if show_detail:
@@ -235,18 +250,13 @@ def assign_topic(text_seg, topic_dict, w2v_model, show_detail=False):
             phrase_count.append(seg['text'].count(phrase.lower()))
         phrase_max = np.argsort(phrase_count)[::-1]
         PHRASE_COUNT = 1
-        PHRASE_SELECT = 4
-        selected_phrase = 0
         for id in phrase_max:
-            if phrase_count[id] > PHRASE_COUNT and selected_phrase < PHRASE_SELECT:
+            if phrase_count[id] > PHRASE_COUNT:
                 if show_detail:
                     print(topic_dict['phrase'][id], phrase_count[id])
                 topic_list[seg_index]['phrase'].append(topic_dict['phrase'][id])
-                selected_phrase += 1
             else:
                 break
-        for j in range(PHRASE_SELECT-selected_phrase):
-            topic_list[seg_index]['phrase'].append(None)
         
         # topic: people 
         LAST_SPECIAL = {'donald trump', 'hillary clinton', 'barack obama'}
@@ -273,18 +283,13 @@ def assign_topic(text_seg, topic_dict, w2v_model, show_detail=False):
             people_count.append(cnt)
         people_max = np.argsort(people_count)[::-1]
         PEOPLE_COUNT = 3
-        PEOPLE_SELECT = 3
-        selected_people = 0
         for id in people_max:
-            if people_count[id] > PEOPLE_COUNT and selected_people < PEOPLE_SELECT:
+            if people_count[id] > PEOPLE_COUNT:
                 if show_detail:
                     print(topic_dict['people'][id], people_count[id])
                 topic_list[seg_index]['people'].append(topic_dict['people'][id])
-                selected_people += 1
             else:
                 break
-        for j in range(PEOPLE_SELECT-selected_people):
-            topic_list[seg_index]['people'].append(None)
 
         # topic: location
         if show_detail:
@@ -295,18 +300,13 @@ def assign_topic(text_seg, topic_dict, w2v_model, show_detail=False):
             loc_count.append(seg['text'].count(loc.lower()))
         loc_max = np.argsort(loc_count)[::-1]
         LOC_COUNT = 2
-        LOC_SELECT = 2
-        selected_loc = 0
         for id in loc_max:
-            if loc_count[id] > LOC_COUNT and selected_loc < LOC_SELECT:
+            if loc_count[id] > LOC_COUNT:
                 if show_detail:
                     print(topic_dict['location'][id], loc_count[id])
                 topic_list[seg_index]['location'].append(topic_dict['location'][id])
-                selected_loc += 1
             else:
                 break
-        for j in range(LOC_SELECT-selected_loc):
-            topic_list[seg_index]['location'].append(None)
 
         # topic: location
         if show_detail:
@@ -317,18 +317,13 @@ def assign_topic(text_seg, topic_dict, w2v_model, show_detail=False):
             org_count.append(seg['text'].count(org.lower()))
         org_max = np.argsort(org_count)[::-1]
         ORG_COUNT = 2
-        ORG_SELECT = 2
-        selected_org = 0
         for id in org_max:
-            if org_count[id] > ORG_COUNT and selected_org < ORG_SELECT:
+            if org_count[id] > ORG_COUNT:
                 if show_detail:
                     print(topic_dict['organization'][id], org_count[id])
                 topic_list[seg_index]['organization'].append(topic_dict['organization'][id])
-                selected_org += 1
             else:
                 break
-        for j in range(ORG_SELECT-selected_org):
-            topic_list[seg_index]['organization'].append(None)
         
         # sentiment analysis
         if show_detail:
@@ -338,6 +333,9 @@ def assign_topic(text_seg, topic_dict, w2v_model, show_detail=False):
         if show_detail:
             print(sen)
         topic_list[seg_index]['sentiment'] = (sen.polarity, sen.subjectivity)
+        
+        # store text
+        topic_list[seg_index]['transcript'] = seg['text']
         
     return topic_list
     
