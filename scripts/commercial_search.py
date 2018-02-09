@@ -306,6 +306,91 @@ def get_lowertext_window_list(transcript, video_desp):
                 lower_end = None
     return lowertext_window_list
 
+def insert_window(wa, wb):
+    t1 = get_time_difference(wa[1][1], wb[0][1])
+    t2 = get_time_difference(wb[1][1], wa[0][1])
+    if t1 > 0 or t2 > 0:
+        return False, wa
+    else:
+        t3 = get_time_difference(wa[0][1], wb[0][1])
+        t4 = get_time_difference(wa[1][1], wb[1][1])
+        if t3 >= 0:
+            start = wa[0]
+        else:
+            start = wb[0]
+        if t4 <= 0:
+            end = wa[1]
+        else:
+            end = wb[1]
+    return True, (start, end)
+    
+def insert_window2list(win_list, win):
+    is_insert = False
+    for i in range(len(win_list)):
+        if get_time_difference(win_list[i][0][1], win[0][1]) < 0:
+            win_list.insert(i, win)
+            is_insert = True
+            break
+    if not is_insert:
+        win_list.append(win)
+    return win_list
+
+def merge_commercial_list(win_list_a, win_list_b, avoid_long=False):
+    list_a = list(win_list_a)
+    list_b = list(win_list_b)
+    MAX_COMMERCIAL_TIME = 300
+    MAX_MERGE_GAP = 30
+    # insert wb into wa
+    merged_list = []
+    insert_list = np.zeros(len(list_b))
+    
+    # remove potencial wb causing long merged block
+    if avoid_long:
+        i = 0
+        while i < len(list_b):
+            wb = list_b[i]
+            delete = False
+            for wa in list_a:
+                if get_time_difference(wa[0][1], wb[1][1]) > MAX_COMMERCIAL_TIME and get_time_difference(wa[1][1], wb[0][1]) < MAX_MERGE_GAP:
+#                     print(list_b[i])
+                    del list_b[i]
+                    delete = True
+                    break
+                if get_time_difference(wb[0][1], wa[1][1]) > MAX_COMMERCIAL_TIME and get_time_difference(wb[1][1], wa[0][1]) < MAX_MERGE_GAP:
+#                     print(list_b[i])
+                    del list_b[i]
+                    delete = True
+                    break
+            if not delete:
+                i += 1
+                
+    # merge list_b into list_a
+    for wa in list_a:
+        new_w = wa
+        for i in range(len(list_b)):
+#             old_w = new_w
+            is_insert, new_w = insert_window(new_w, list_b[i])
+#             if get_time_difference(new_w[0][1], new_w[1][1]) > MAX_COMMERCIAL_TIME:
+#                 new_w = old_w
+            if is_insert:
+                insert_list[i] = 1
+        merged_list.append(new_w)
+    # add independent single lowertext window
+    for i in range(len(list_b)):
+        if insert_list[i] == 0:
+            insert_window2list(merged_list, list_b[i])
+    
+    # merge small gaps
+    i = 0
+    while i < len(merged_list) - 1:
+        if get_time_difference(merged_list[i][1][1], merged_list[i+1][0][1]) < 10:
+            merged_list[i] = (merged_list[i][0], merged_list[i+1][1])
+            del merged_list[i+1]
+        else:
+            i += 1
+        
+    return merged_list
+
 def post_process(clist, blist, transcript):    
     # remove_commercial_gaps
     GAP_THRESH = 90
