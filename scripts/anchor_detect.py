@@ -8,6 +8,7 @@ import codecs
 import math
 import multiprocessing as mp
 from skimage.util import view_as_blocks
+import copy
 from utility import *
 
 def detect_single(video_name, video_meta, face_list, com_list=None):
@@ -134,7 +135,7 @@ def detect_anchor(video_meta, single_person):
         cluster.append(group)
 
     ## find the cluster with the most broad distribution
-    BIN_WIDTH = 180
+    BIN_WIDTH = 300
     SPREAD_THRESH = 0.5
     anchor_group = []
     for i in range(NUM_CLUSTER):
@@ -161,7 +162,15 @@ def detect_anchor(video_meta, single_person):
         anchor_person = []
         ## remove noise at the end
         print("Anchor group %d: %d faces" % (i, len(anchor_person_raw)))
+        last_sim = sim[0] 
         for idx in top_id:
+            if sim[idx] > 0.9 and sim[idx] - last_sim > 0.065:
+                anchor_person_raw[idx]['fake'] = True
+                last_sim = 0
+            else:
+                anchor_person_raw[idx]['fake'] = False
+                last_sim = sim[idx]
+            anchor_person_raw[idx]['sim'] = sim[idx]    
             anchor_person.append(anchor_person_raw[idx])
             print("fid: %d, similiarity = %f" % (anchor_person_raw[idx]['fid'], sim[idx]))
         anchor_group.append(anchor_person)
@@ -199,18 +208,21 @@ def plot_anchor(video_name, video_meta, anchor_group):
             for j in range(len(anchor_person)):
                 face = anchor_person[j]
                 if face['fid'] == fid:
+                    img = copy.deepcopy(frame) 
                     x1 = int(face['bbox']['bbox_x1'] * W)
                     y1 = int(face['bbox']['bbox_y1'] * H)
                     x2 = int(face['bbox']['bbox_x2'] * W)
                     y2 = int(face['bbox']['bbox_y2'] * H)
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), color=(0,0,255), thickness=3)
+                    cv2.rectangle(img, (x1, y1), (x2, y2), color=(0,0,255), thickness=3)
                     time = get_time_from_fid(fid, fps)
-                    text = str(fid) + ':' + str(time)
-                    cv2.rectangle(frame, (0, 0), (230, 30), color=(255,255,255), thickness=-1)
-                    cv2.putText(frame, text, (0,25), cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.7, color=(0,0,0), thickness=2)
+                    text = str(fid) + '|' + str(time) + '|' + '{0:.3f}'.format(face['sim'])
+                    cv2.rectangle(img, (0, 0), (320, 30), color=(255,255,255), thickness=-1)
+                    cv2.putText(img, text, (0,25), cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.7, color=(0,0,0), thickness=2)
+                    if face['fake'] == True:
+                        cv2.circle(img, (620, 10), 10, color=(255,255,255), thickness=-1)
         #             filename = '../tmp/'+video_name+'_'+'{:06d}'.format(fid)+'.jpg'
         #             cv2.imwrite(filename, frame)
-                    anchor_all[i][j] = frame
+                    anchor_all[i][j] = img
                     break
         fid += 1
     cap.release()
@@ -219,7 +231,7 @@ def plot_anchor(video_name, video_meta, anchor_group):
         grid = view_grid(anchor_all[i], 5)
         H, W, C = grid.shape
         filename = '../tmp/anchor/' + video_name + str(i) + '.jpg'
-        grid_small = cv2.resize(grid, (1080, int(H/W*1080)))
+        grid_small = cv2.resize(grid, (1920, int(H/W*1920)))
         cv2.imwrite(filename, grid_small)
     
 def plot_anchor_distribution():
