@@ -9,9 +9,10 @@ import math
 import multiprocessing as mp
 from skimage.util import view_as_blocks
 import copy
+from sklearn.cluster import KMeans
 from utility import *
 
-def detect_single(video_name, video_meta, face_list, com_list=None):
+def detect_single(video_name, video_meta, face_list, com_list):
     fps = video_meta['fps']
     video_length = video_meta['video_length']
     # find shots with single face of an area above some threshhold
@@ -41,7 +42,7 @@ def detect_single(video_name, video_meta, face_list, com_list=None):
     #     print(len(single_person))
     return single_person
     
-def detect_anchor(video_meta, single_person):
+def detect_anchor(video_meta, single_person, com_list):
     fps = video_meta['fps']
     video_length = video_meta['video_length']
     
@@ -108,7 +109,6 @@ def detect_anchor(video_meta, single_person):
 
     ## detect anchor by Kmeans
     NUM_CLUSTER = 5
-    from sklearn.cluster import KMeans
     N = len(single_person)
     features = np.zeros((N, 128))
     for i in range(len(single_person)):
@@ -133,47 +133,83 @@ def detect_anchor(video_meta, single_person):
             if np.linalg.norm(p['feature'] - center['feature']) < FACE_SIM_THRESH:
                 group.append(p)
         cluster.append(group)
-
+        
+    ## remove noise face by calculating average similiraty
+    for i in range(NUM_CLUSTER):
+        sim = []
+        for p1 in cluster[i]:
+            dist = 0
+            for p2 in cluster[i]:
+                if p1['fid'] != p2['fid']:
+                    dist += np.linalg.norm(p1['feature'] - p2['feature'])
+            sim.append(dist / (len(cluster[i])-1))
+        top_id = np.argsort(sim)
+        new_group_idx = []
+        ## remove noise at the end
+#         print("Anchor group %d: %d faces" % (i, len(anchor_person_raw)))
+        last_sim = sim[0] 
+        for idx in top_id:
+            if sim[idx] > 0.9 and sim[idx] - last_sim > 0.065:
+                break
+            else:
+                new_group_idx.append(idx)
+                last_sim = sim[idx]
+                cluster[i][idx]['sim'] = sim[idx]
+#             print("fid: %d, similiarity = %f" % (anchor_person_raw[idx]['fid'], sim[idx]))
+        new_group_idx.sort()
+        new_group = []
+        for idx in new_group_idx:
+            new_group.append(cluster[i][idx])
+        cluster[i] = new_group    
+    
     ## find the cluster with the most broad distribution
     BIN_WIDTH = 300
-    SPREAD_THRESH = 0.5
+    coverage = []
     anchor_group = []
     for i in range(NUM_CLUSTER):
         bins = np.zeros(int(video_length / BIN_WIDTH)+1)
         for p in cluster[i]:
             t = get_second_from_fid(p['fid'], fps)
             bins[int(t / BIN_WIDTH)] += 1
-        print("Cluster %d coverage = %f" % (i, 1. * np.count_nonzero(bins) / bins.shape[0]))    
-        if 1. * np.count_nonzero(bins) / bins.shape[0] > SPREAD_THRESH:
-            anchor_group.append(cluster[i])
-
-    ## remove noise face by calculating average similiraty
-    anchor_group_raw = anchor_group
+#         print("Cluster %d coverage = %f" % (i, 1. * np.count_nonzero(bins) / bins.shape[0]))    
+        cov = 1. * np.count_nonzero(bins) / bins.shape[0]
+        coverage.append(cov)
+    
+    ## merge similar clusters
+    MERGE_THRESH = 1.15
+    while True:
+        del_key = -1
+        for i, c1 in enumerate(cluster_center):
+            for j in range(i+1, len(cluster_center)):
+                c2 = cluster_center[j]
+                sim = np.linalg.norm(c1['feature']- c2['feature'])
+                #                 print("Similarity between center %d and center %d = %f" % (i, j, sim))
+                if sim < MERGE_THRESH:
+                    if coverage[i] < coverage[j]:
+                        del_key = i
+                    else:
+                        del_key = j
+        if del_key != -1:
+            del cluster[del_key]
+            del cluster_center[del_key]
+            del coverage[del_key]
+        else:
+            break
+    
+    ## find the cluster with the most broad distribution
+    SPREAD_THRESH = 0.5
+    DURATION_THRESH = 0.75
+    HEAD_APPEAR = 300
     anchor_group = []
-    for i, anchor_person_raw in enumerate(anchor_group_raw):
-        sim = []
-        for p1 in anchor_person_raw:
-            dist = 0
-            for p2 in anchor_person_raw:
-                if p1 != p2:
-                    dist += np.linalg.norm(p1['feature'] - p2['feature'])
-            sim.append(dist / (len(anchor_person_raw)-1))
-        top_id = np.argsort(sim)
-        anchor_person = []
-        ## remove noise at the end
-        print("Anchor group %d: %d faces" % (i, len(anchor_person_raw)))
-        last_sim = sim[0] 
-        for idx in top_id:
-            if sim[idx] > 0.9 and sim[idx] - last_sim > 0.065:
-                anchor_person_raw[idx]['fake'] = True
-                last_sim = 0
-            else:
-                anchor_person_raw[idx]['fake'] = False
-                last_sim = sim[idx]
-            anchor_person_raw[idx]['sim'] = sim[idx]    
-            anchor_person.append(anchor_person_raw[idx])
-            print("fid: %d, similiarity = %f" % (anchor_person_raw[idx]['fid'], sim[idx]))
-        anchor_group.append(anchor_person)
+    for i, c in enumerate(cluster):
+        if coverage[i] < SPREAD_THRESH:
+            continue
+        duration = get_second_from_fid(c[-1]['fid'], fps) - get_second_from_fid(c[0]['fid'], fps)
+        if 1. * duration / video_length < DURATION_THRESH:
+            continue
+#         if com_list[0][0][0] < 
+#         start = com_list[]
+        anchor_group.append(c)
 
     return anchor_group
 
@@ -218,8 +254,8 @@ def plot_anchor(video_name, video_meta, anchor_group):
                     text = str(fid) + '|' + str(time) + '|' + '{0:.3f}'.format(face['sim'])
                     cv2.rectangle(img, (0, 0), (320, 30), color=(255,255,255), thickness=-1)
                     cv2.putText(img, text, (0,25), cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.7, color=(0,0,0), thickness=2)
-                    if face['fake'] == True:
-                        cv2.circle(img, (620, 10), 10, color=(255,255,255), thickness=-1)
+#                     if face['fake'] == True:
+#                         cv2.circle(img, (620, 10), 10, color=(255,255,255), thickness=-1)
         #             filename = '../tmp/'+video_name+'_'+'{:06d}'.format(fid)+'.jpg'
         #             cv2.imwrite(filename, frame)
                     anchor_all[i][j] = img
