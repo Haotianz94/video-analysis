@@ -212,14 +212,14 @@ def get_middle_anchor(anchor_group):
         face_pos = []
         for j, p in enumerate(anchor_person):
             if p['fake']:
-                break
+                continue
             cx = (p['bbox']['bbox_x1'] + p['bbox']['bbox_x2']) / 2
             cy = (p['bbox']['bbox_y1'] + p['bbox']['bbox_y2']) / 2
             area = (p['bbox']['bbox_y2'] - p['bbox']['bbox_y1']) * ((p['bbox']['bbox_x2'] - p['bbox']['bbox_x1']))
             face_pos.append(np.array([cx, cy, area]))
         NUM_CLUSTER = 8
         if len(face_pos) < NUM_CLUSTER:
-            continue
+            NUM_CLUSTER = len(face_pos)
         kmeans = KMeans(n_clusters=NUM_CLUSTER).fit(np.array(face_pos))
         ## collect the cluster
         cluster_center = []
@@ -295,23 +295,21 @@ def plot_cluster(video_name, video_meta, anchor_group):
     video_path = '../data/videos/' + video_name + '.mp4'
     cap = cv2.VideoCapture(video_path)
     ret, frame = cap.read()
+    if not ret:
+        return 
     fid = 1
     H, W, C = frame.shape
     anchor_all = []
-    anchor_large = []
     for anchor_person in anchor_group:
         N = len(anchor_person)
         anchor_all.append(np.zeros((N, H, W, C)))
-        anchor_large.append(0)
     while(True):
         ret, frame = cap.read()
         if not ret:
             break
 
-        for i in range(len(anchor_group)):
-            anchor_person = anchor_group[i]
-            for j in range(len(anchor_person)):
-                face = anchor_person[j]
+        for i, anchor_person in enumerate(anchor_group):
+            for j, face in enumerate(anchor_person):
                 if face['fid'] == fid:
                     img = copy.deepcopy(frame) 
                     x1 = int(face['bbox']['bbox_x1'] * W)
@@ -322,15 +320,14 @@ def plot_cluster(video_name, video_meta, anchor_group):
                         cv2.rectangle(img, (x1, y1), (x2, y2), color=(255,255,255), thickness=3)
 #                     elif face['type'] == 'large':
 #                         cv2.rectangle(img, (x1, y1), (x2, y2), color=(0,0,255), thickness=3)
-#                         if anchor_large[i] == 0:
-#                             filename = '../tmp/anchor_single/' + video_name + str(i) + '.jpg'
-#                             cv2.imwrite(filename, img)
-#                             anchor_large[i] = 1
 #                     else:
 #                         cv2.rectangle(img, (x1, y1), (x2, y2), color=(255,0,0), thickness=3)
                     else:
                         color = [(0, 0, 255), (255, 0, 0), (0, 255, 0), (255, 0, 255), (255, 255, 0), (0, 255, 255), (128, 128, 255), (128, 255, 128)]
                         cv2.rectangle(img, (x1, y1), (x2, y2), color=color[face['type']], thickness=3)
+                        if face['sim'] == 0:
+                            filename = '../tmp/anchor_single/' + video_name + '_' + str(i) + '.jpg'
+                            cv2.imwrite(filename, img)
                     
                     time = get_time_from_fid(fid, fps)
                     text = str(fid) + '|' + str(time) + '|' + '{0:.3f}'.format(face['sim'])
@@ -345,7 +342,7 @@ def plot_cluster(video_name, video_meta, anchor_group):
     for i in range(len(anchor_all)):
         grid = view_grid(anchor_all[i], 5)
         H, W, C = grid.shape
-        filename = '../tmp/anchor/' + video_name + str(i) + '.jpg'
+        filename = '../tmp/anchor/' + video_name + '_' + str(i) + '.jpg'
         grid_small = cv2.resize(grid, (1920, int(H/W*1920)))
         cv2.imwrite(filename, grid_small)
     
@@ -388,6 +385,51 @@ def solve_single_video(video_name, video_meta, face_list, com_list, plot_d=False
         plot_distribution(video_meta, anchor_group, com_list)
     return anchor_group
 
+def build_people_dict(anchor_dict):
+    people_dict = {}
+    for video, anchor_group in anchor_dict.items():
+        date, station, show = get_detail_from_video_name(video)
+        if not show in people_dict:
+            people_dict[show] = []
+        for anchor_person in anchor_group:
+            for p in anchor_person:
+                if p['sim'] == 0:
+                    people_dict[show].append(copy.deepcopy(p))
+                    break
+    pickle.dump(people_dict, open('../data/people_dict.pkl', 'wb'))
+    return people_dict
+
+def clean_anchor_dict(anchor_dict, people_dict):
+    FACE_SIM_THRESH = 0.9
+    OTHER_SHOW_THRESH = 3
+    anchor_dict_new = {}
+    for video, anchor_group in anchor_dict.items():
+        date, station, show = get_detail_from_video_name(video)
+        anchor_group_new = []
+        for anchor_person in anchor_group:
+            ## find cluster center
+            for p in anchor_person:
+                if p['sim'] == 0:
+                    anchor = p
+                    break
+            ## find this anchor in other shows
+            cnt = 0
+            for show_check, people_list in people_dict.items():
+                if show != show_check:
+                    for p in people_list:
+                        dist = np.linalg.norm(p['feature'] - anchor['feature'])
+                        if dist < FACE_SIM_THRESH:
+                            cnt += 1
+#                             print(show_check)
+                            break
+            if cnt > OTHER_SHOW_THRESH:
+                print(video, cnt)
+            else:
+                anchor_group_new.append(anchor_person)
+        if len(anchor_group_new) > 0:        
+            anchor_dict_new[video] = anchor_group_new
+    return anchor_dict_new
+
 def test_video_list(video_list_path):
     face_dict = pickle.load(open('../data/face_dict.pkl', 'rb'))
     com_dict = pickle.load(open('../data/commercial_dict.pkl', 'rb'))
@@ -407,21 +449,33 @@ def test_single_video(video_name, plot_distribution=True, plot_d=False, plot_c=T
     
 def detect_anchor_t(video_list, anchor_dict_path, plot_c, thread_id):
     print("Thread %d start computing..." % (thread_id))
-    anchor_dict = {}
-    face_dict = pickle.load(open('../data/face_dict.pkl', 'rb'))
-    com_dict = pickle.load(open('../data/commercial_dict.pkl', 'rb'))
     meta_dict = pickle.load(open('../data/video_meta_dict.pkl', 'rb'))
+
+    if not plot_c:
+        face_dict = pickle.load(open('../data/face_dict.pkl', 'rb'))
+        com_dict = pickle.load(open('../data/commercial_dict.pkl', 'rb'))
+        anchor_dict = {}
+    else:
+        anchor_dict = pickle.load(open('../data/anchor_dict.pkl', 'rb'))    
+    
     for i in range(len(video_list)):
         video_name = video_list[i]
         print("Thread %d start %dth video: %s" % (thread_id, i, video_name))
-        anchor_group = solve_single_video(video_name, meta_dict[video_name], face_dict[video_name], com_dict[video_name], False, plot_c)
-        
+        if not plot_c:
+            anchor_group = solve_single_video(video_name, meta_dict[video_name], face_dict[video_name], com_dict[video_name], False, plot_c)
+        else:
+            if video_name in anchor_dict: 
+                plot_cluster(video_name, meta_dict[video_name], anchor_dict[video_name])
+            continue
+            
         if anchor_group is None:
             continue
         anchor_dict[video_name] = anchor_group
         if i % 100 == 0:
             pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))
-    pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))
+            
+    if not plot_c:
+        pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))
     print("Thread %d finished computing..." % (thread_id))
 
 def detect_anchor_parallel(video_list_path, anchor_dict_path=None, plot_c=False, nthread=16, use_process=True):
@@ -432,14 +486,15 @@ def detect_anchor_parallel(video_list_path, anchor_dict_path=None, plot_c=False,
 #     for file in os.listdir('../tmp/anchor/'):
 #         finished.append(file[:-5])
 #     video_list = [video for video in video_list if video not in finished]
-
-    dict_file = Path(anchor_dict_path)
-    if dict_file.is_file():
-        anchor_dict = pickle.load(open(anchor_dict_path, "rb" ))
-        video_list = [video for video in video_list if video not in anchor_dict]
-    else:
-        anchor_dict = {}
     
+    if not plot_c:
+        dict_file = Path(anchor_dict_path)
+        if dict_file.is_file():
+            anchor_dict = pickle.load(open(anchor_dict_path, "rb" ))
+            video_list = [video for video in video_list if video not in anchor_dict]
+        else:
+            anchor_dict = {}
+
     num_video = len(video_list)
     print(num_video)
     if num_video == 0:
@@ -475,53 +530,18 @@ def detect_anchor_parallel(video_list_path, anchor_dict_path=None, plot_c=False,
     for t in thread_list:
         t.join()
     
+    if plot_c:
+        return
+    
     for path in anchor_dict_list:
         dict_file = Path(path)
         if not dict_file.is_file():
             continue
         anchor_dict_tmp = pickle.load(open(path, "rb" ))
         anchor_dict = {**anchor_dict, **anchor_dict_tmp}
+    
+    ## post process
+    people_dict = build_people_dict(anchor_dict)
+    anchor_dict = clean_anchor_dict(anchor_dict, people_dict)
 
-    pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))
-
-def build_people_dict(anchor_dict):
-    people_dict = {}
-    for video, anchor_group in anchor_dict.items():
-        date, station, show = get_detail_from_video_name(video)
-        if not show in people_dict:
-            people_dict[show] = []
-        for anchor_person in anchor_group:
-            for p in anchor_person:
-                if p['sim'] == 0:
-                    people_dict[show].append(copy.deepcopy(p))
-                    break
-    pickle.dump(people_dict, open('../data/people_dict.pkl', 'wb'))
-    return people_dict
-
-def clean_anchor_dict(anchor_dict, people_dict):
-    FACE_SIM_THRESH = 0.9
-    OTHER_SHOW_THRESH = 3
-    for video, anchor_group in anchor_dict.items():
-        date, station, show = get_detail_from_video_name(video)
-        anchor_group_new = []
-        for anchor_person in anchor_group:
-            ## find cluster center
-            for p in anchor_person:
-                if p['sim'] == 0:
-                    anchor = p
-                    break
-            ## find this anchor in other shows
-            cnt = 0
-            for show_check, people_list in people_dict.items():
-                if show != show_check:
-                    for p in people_list:
-                        dist = np.linalg.norm(p['feature'] - anchor['feature'])
-                        if dist < FACE_SIM_THRESH:
-                            cnt += 1
-#                             print(show_check)
-                            break
-            if cnt > OTHER_SHOW_THRESH:
-                print(video, cnt)
-            else:
-                anchor_group_new.append(anchor_person)
-        anchor_dict[video] = anchor_group_new    
+    pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
