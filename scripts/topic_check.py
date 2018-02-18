@@ -38,9 +38,11 @@ def get_scores(topic_res, topic, ttype, start_date, end_date, show_name=None, st
                 for i in range(len(value[ttype])):
                     if value[ttype][i] == t:
                         cnt[t] += (1.5 - 0.1*i)
+                    
+                        if show_sentiment:
+                            senti[t].append(value['sentiment'][0])
                         break
-                if show_sentiment:
-                    senti[t].append(value['sentiment'][0])
+                
         for t in topic:
             if not date in topic_score['ALL'][t]:
                 topic_score['ALL'][t][date] = []
@@ -49,13 +51,14 @@ def get_scores(topic_res, topic, ttype, start_date, end_date, show_name=None, st
             topic_score['ALL'][t][date].append(1. * cnt[t] / total/1.5)
             topic_score[station][t][date].append(1. * cnt[t] / total/1.5)
             
-            if show_sentiment:
+            if show_sentiment and len(senti[t]) > 0:
                 if not date in sentiment_score['ALL'][t]:
                     sentiment_score['ALL'][t][date] = []
                 if not date in sentiment_score[station][t]:
                     sentiment_score[station][t][date] = []
-                sentiment_score['ALL'][t][date].append(np.average(senti[t]))
-                sentiment_score[station][t][date].append(np.average(senti[t]))
+                senti_score = np.average(senti[t])
+                sentiment_score['ALL'][t][date].append(senti_score)
+                sentiment_score[station][t][date].append(senti_score)
                 
     dates = sorted(topic_score['ALL'][topic[0]])
     topic_score_avg = {}
@@ -101,13 +104,16 @@ def plot_video_list(topic_res, topic, ttype, start_date, end_date, show_name=Non
             else:
                 label_topic = '\''+ t + '\' in ' + s
                 label_senti = 'sentiment of \''+ t + '\' in ' + s
-            label_topic += "  Avg = " + '{0:.4f}'.format(np.average(topic_score_avg[s][t]))    
-            curve1, = plt.plot(x, topic_score_avg[s][t], label=label_topic)
-            handles.append(curve1)
+            
             if show_sentiment:
+                sentiment_nonzero = [senti for senti in sentiment_score_avg[s][t] if senti != 0]
+                label_senti += "  Avg = " + '{0:.4f}'.format(np.average(sentiment_nonzero)) 
                 curve2, = plt.plot(x, sentiment_score_avg[s][t], label=label_senti)
                 handles.append(curve2)
-#             print("%s: average = %3f median = %3f" % (label_topic, np.average(topic_score_avg[s][t]), np.median(topic_score_avg[s][t])))    
+            else:
+                label_topic += "  Avg = " + '{0:.4f}'.format(np.average(topic_score_avg[s][t]))    
+                curve1, = plt.plot(x, topic_score_avg[s][t], label=label_topic)
+                handles.append(curve1)
     plt.legend(handles=handles)
 
     NUM_XTICKS = 36
