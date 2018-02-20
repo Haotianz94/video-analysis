@@ -16,15 +16,13 @@ from utility import *
 def detect_single(video_name, video_meta, face_list, com_list):
     fps = video_meta['fps']
     video_length = video_meta['video_length']
-    # find shots with single face of an area above some threshhold
-    MIN_FACE_AREA = 0
+
     single_person = []
     for shot in face_list:
-        if len(shot['faces']) == 1:
-            face = shot['faces'][0]
-            bbox = face[0]
-#             if (bbox['bbox_x2'] - bbox['bbox_x1']) * (bbox['bbox_y2'] - bbox['bbox_y1']) > MIN_FACE_AREA: 
-            single_person.append({'fid': shot['face_frame'], 'shot': (shot['min_frame'], shot['max_frame']), 'bbox': bbox, 'feature': np.array(face[1])})
+        if len(shot['faces']) >= 1 and len(shot['faces']) <= 3:
+            for face in shot['faces']:
+                single_person.append({'fid': shot['face_frame'], 'shot': (shot['min_frame'], 
+                    shot['max_frame']), 'bbox': face[0], 'feature': np.array(face[1]), 'face_per_shot': len(shot['faces'])})
 #     print(len(single_person))
 
     # remove face in commercial
@@ -103,12 +101,9 @@ def detect_anchor(video_meta, single_person, com_list, detail=True):
         ## remove noise at the end
         last_sim = sim[0] 
         for idx in top_id:
-            if sim[idx] > 0.9 and sim[idx] - last_sim > 0.065:
-#                 break
+            if sim[idx] > 0.95:
                 ## collect side
                 last_sim = 0
-#                 s = np.linalg.norm(cluster_center[i]['feature'] - cluster[i][idx]['feature'])
-#                 cluster[i][idx]['sim'] = s
                 cluster_side[i].append(cluster[i][idx])
             else:
                 new_group_idx.append(idx)
@@ -124,16 +119,19 @@ def detect_anchor(video_meta, single_person, com_list, detail=True):
             print("Cluster %d: %d faces -> %d faces" % (i, origin_faces, len(cluster[i])))
     
     ## calculate the cluster coverage
-    BIN_WIDTH = 300
+    BIN_WIDTH = 150
     coverage = []
     anchor_group = []
+    com_length = 0
+    for com in com_list:
+        com_length += get_time_difference(com[0][1], com[1][1])
     for i in range(NUM_CLUSTER):
         bins = np.zeros(int(video_length / BIN_WIDTH)+1)
         for p in cluster[i]:
             t = get_second_from_fid(p['fid'], fps)
             bins[int(t / BIN_WIDTH)] += 1
 #         print("Cluster %d coverage = %f" % (i, 1. * np.count_nonzero(bins) / bins.shape[0]))    
-        cov = 1. * np.count_nonzero(bins) / bins.shape[0]
+        cov = 1. * np.count_nonzero(bins) / (bins.shape[0] - com_length / BIN_WIDTH)
         coverage.append(cov)
 #         print("Cluster %d coverage: %f" % (i, coverage[i]))
     
@@ -164,9 +162,9 @@ def detect_anchor(video_meta, single_person, com_list, detail=True):
             break
     
     ## find the cluster with the most broad distribution
-    SPREAD_THRESH = 0.45
-    DURATION_THRESH = 0.55
-    HEAD_APPEAR = 300
+    SPREAD_THRESH = 0.5
+    DURATION_THRESH = 0.5
+#     HEAD_APPEAR = 300
     anchor_group = []
     anchor_side = []
     anchor_center = []
@@ -186,6 +184,8 @@ def detect_anchor(video_meta, single_person, com_list, detail=True):
         anchor_side.append(cluster_side[i])
         anchor_center.append(cluster_center[i])
 #     print("side", len(anchor_side[0]))
+    if len(anchor_group) == 0:
+        return None
     
     ## reorder 
     for i, anchor_person in enumerate(anchor_group):
@@ -194,7 +194,7 @@ def detect_anchor(video_meta, single_person, com_list, detail=True):
         for j, p in enumerate(anchor_group[i]):
             anchor_group[i][j]['fake'] = False
         
-#         anchor_group[i].extend(anchor_side[i])
+        anchor_group[i].extend(anchor_side[i])
         for j, p in enumerate(anchor_group[i]):
             sim = np.linalg.norm(anchor_center[i]['feature'] - p['feature'])
             anchor_group[i][j]['sim'] = sim
@@ -211,8 +211,6 @@ def detect_anchor(video_meta, single_person, com_list, detail=True):
 def get_middle_anchor(anchor_group, detail=True):
     ## use the x of the center of the bbox to define the center
     for i, anchor_person in enumerate(anchor_group):
-#         N = len(anchor_person)
-#         face_pos = np.zeros((N, 3))
         face_pos = []
         for j, p in enumerate(anchor_person):
             if p['fake']:
@@ -559,8 +557,8 @@ def detect_anchor_parallel(video_list_path, anchor_dict_path=None, plot_c=False,
     
     pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
     
-    ## post process
-#     people_dict = build_people_dict(anchor_dict)
-#     anchor_dict = clean_anchor_dict(anchor_dict, people_dict)
+    # post process
+    people_dict = build_people_dict(anchor_dict)
+    anchor_dict = clean_anchor_dict(anchor_dict, people_dict)
 
-#     pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
+    pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
