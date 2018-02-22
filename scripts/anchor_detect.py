@@ -211,34 +211,32 @@ def detect_anchor(video_name, video_meta, single_person, com_list=None, detail=T
     
     ## reorder 
     for i, anchor_person in enumerate(anchor_group):
-        for j, p in enumerate(anchor_side[i]):
-            anchor_side[i][j]['fake'] = True    
+#         for j, p in enumerate(anchor_side[i]):
+#             anchor_side[i][j]['fake'] = True    
         for j, p in enumerate(anchor_group[i]):
             anchor_group[i][j]['fake'] = False
-        
-        for j, p in enumerate(anchor_group[i]):
             sim = np.linalg.norm(anchor_center[i]['feature'] - p['feature'])
             anchor_group[i][j]['sim'] = sim
         
-        for j, p in enumerate(anchor_side[i]):
-            sim = np.linalg.norm(anchor_center[i]['feature'] - p['feature'])
-            anchor_side[i][j]['sim'] = sim
+#         for j, p in enumerate(anchor_side[i]):
+#             sim = np.linalg.norm(anchor_center[i]['feature'] - p['feature'])
+#             anchor_side[i][j]['sim'] = sim
             
-        for j in range(len(anchor_group[i])):
-            for k in range(j+1, len(anchor_group[i])):
-                if anchor_group[i][j]['sim'] > anchor_group[i][k]['sim']:
-                    tmp = anchor_group[i][j]
-                    anchor_group[i][j] = anchor_group[i][k]
-                    anchor_group[i][k] = tmp
+#         for j in range(len(anchor_group[i])):
+#             for k in range(j+1, len(anchor_group[i])):
+#                 if anchor_group[i][j]['sim'] > anchor_group[i][k]['sim']:
+#                     tmp = anchor_group[i][j]
+#                     anchor_group[i][j] = anchor_group[i][k]
+#                     anchor_group[i][k] = tmp
         
-        for j in range(len(anchor_side[i])):
-            for k in range(j+1, len(anchor_side[i])):
-                if anchor_side[i][j]['sim'] > anchor_side[i][k]['sim']:
-                    tmp = anchor_side[i][j]
-                    anchor_side[i][j] = anchor_side[i][k]
-                    anchor_side[i][k] = tmp
+#         for j in range(len(anchor_side[i])):
+#             for k in range(j+1, len(anchor_side[i])):
+#                 if anchor_side[i][j]['sim'] > anchor_side[i][k]['sim']:
+#                     tmp = anchor_side[i][j]
+#                     anchor_side[i][j] = anchor_side[i][k]
+#                     anchor_side[i][k] = tmp
 
-        anchor_group[i].extend(anchor_side[i])
+#         anchor_group[i].extend(anchor_side[i])
                     
     return anchor_group
 
@@ -390,7 +388,7 @@ def plot_cluster(video_name, video_meta, anchor_group):
         grid_small = cv2.resize(grid, (1920, int(H/W*1920)))
         cv2.imwrite(filename, grid_small)
     
-def plot_distribution(video_meta, anchor_group, com_list):
+def plot_distribution(video_meta, anchor_group, com_list=None):
     fps = video_meta['fps']    
     video_length = video_meta['video_length']
     fig = plt.figure()
@@ -402,8 +400,9 @@ def plot_distribution(video_meta, anchor_group, com_list):
             if p['fake'] == False:
                 t = get_second_from_fid(p['fid'], fps)
                 plt.plot([t, t], [i+0.5, i+1.5], color[i], linewidth=1.0)
-        for com in com_list:
-            plt.plot([get_second(com[0][1]), get_second(com[1][1])], [i+1, i+1], 'r', linewidth=4.0)
+        if not com_list is None:        
+            for com in com_list:
+                plt.plot([get_second(com[0][1]), get_second(com[1][1])], [i+1, i+1], 'r', linewidth=4.0)
 
     plt.ylim([0, len(anchor_group)+1])
     plt.xlim([0, video_length])
@@ -430,22 +429,34 @@ def solve_single_video(video_name, video_meta, face_list, com_list, plot_d=False
     return anchor_group
 
 def build_people_dict(anchor_dict):
+    FACE_SIM_THRESH = 0.5
     people_dict = {}
     for video, anchor_group in anchor_dict.items():
         date, station, show = get_detail_from_video_name(video)
         if not show in people_dict:
             people_dict[show] = []
         for anchor_person in anchor_group:
+            ## find center
             for p in anchor_person:
                 if p['sim'] == 0:
-                    people_dict[show].append(copy.deepcopy(p))
+                    anchor = p
                     break
-    pickle.dump(people_dict, open('../data/people_dict.pkl', 'wb'))
+            ## remove repeated person 
+            non_repeat = True
+            for p in people_dict[show]:
+                dist = np.linalg.norm(p['feature'] - anchor['feature'])
+                if dist < FACE_SIM_THRESH:
+                    non_repeat = False
+                    break
+            if non_repeat:        
+                people_dict[show].append(copy.deepcopy(anchor))
+                
+#     pickle.dump(people_dict, open('../data/people_dict.pkl', 'wb'))
     return people_dict
 
-def clean_anchor_dict(anchor_dict, people_dict):
+def clean_anchor_dict(anchor_dict, people_dict, repeat_cnt=None):
     FACE_SIM_THRESH = 0.9
-    OTHER_SHOW_THRESH = 3
+    OTHER_SHOW_THRESH = 30
     anchor_dict_new = {}
     for video, anchor_group in anchor_dict.items():
         date, station, show = get_detail_from_video_name(video)
@@ -466,12 +477,13 @@ def clean_anchor_dict(anchor_dict, people_dict):
                             cnt += 1
 #                             print(show_check)
                             break
-            if cnt > OTHER_SHOW_THRESH:
-                print(video, cnt)
-            else:
+            if cnt < OTHER_SHOW_THRESH:
                 anchor_group_new.append(anchor_person)
-        if len(anchor_group_new) > 0:        
-            anchor_dict_new[video] = anchor_group_new
+#             repeat_cnt.append(cnt)
+#             else:
+#                 print(video, cnt)
+
+        anchor_dict_new[video] = anchor_group_new
     return anchor_dict_new
 
 def test_video_list(video_list_path):
@@ -505,7 +517,8 @@ def detect_anchor_t(video_list, anchor_dict_path, plot_c, thread_id):
     else:
         dict_path = '../data/face_dict/face_dict_' + str(thread_id) + '.pkl'
         face_dict = pickle.load(open(dict_path, 'rb'))
-        anchor_dict_name = pickle.load(open('../data/anchor_dict_name.pkl', 'rb'))
+#         anchor_dict_name = pickle.load(open('../data/anchor_dict_name.pkl', 'rb'))
+        anchor_dict_name = {}
         com_dict = pickle.load(open('../data/commercial_dict.pkl', 'rb'))
         anchor_dict = {}
         video_list = [video for video in sorted(face_dict) if not video in anchor_dict_name]
@@ -528,16 +541,25 @@ def detect_anchor_t(video_list, anchor_dict_path, plot_c, thread_id):
             continue
             
         if anchor_group is None:
-            continue
-        anchor_dict[video_name] = anchor_group
+            anchor_dict[video_name] = []
+        else:
+            anchor_dict[video_name] = anchor_group
         if i % 50 == 0:
             pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))
             
     if not plot_c:
         pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))
     print("Thread %d finished computing..." % (thread_id))
+    out = open('../log/detect_anchor.txt', 'a')
+    out.write('Thread ' + str(thread_id) + ' finished computing...\n')
+    out.close()
 
 def detect_anchor_parallel(video_list_path, anchor_dict_path=None, plot_c=False, nthread=16, use_process=True):
+    ## log
+    out = open('../log/detect_anchor.txt', 'w')
+    out.write('init\n')
+    out.close()
+    
     if not video_list_path is None:
         video_list = open(video_list_path).read().split('\n')
     
@@ -560,7 +582,11 @@ def detect_anchor_parallel(video_list_path, anchor_dict_path=None, plot_c=False,
             num_video_t = math.ceil(1. * num_video / nthread)
         print(num_video_t)
     else:
-        anchor_dict = pickle.load(open(anchor_dict_path, "rb" ))
+        dict_file = Path(anchor_dict_path)
+        if dict_file.is_file():
+            anchor_dict = pickle.load(open(anchor_dict_path, "rb" ))
+        else:
+            anchor_dict = {}
         
     anchor_dict_list = []
     for i in range(nthread):
@@ -602,7 +628,7 @@ def detect_anchor_parallel(video_list_path, anchor_dict_path=None, plot_c=False,
     pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
     
     # post process
-    people_dict = build_people_dict(anchor_dict)
-    anchor_dict = clean_anchor_dict(anchor_dict, people_dict)
+#     people_dict = build_people_dict(anchor_dict)
+#     anchor_dict = clean_anchor_dict(anchor_dict, people_dict)
 
-    pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
+#     pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
