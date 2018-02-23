@@ -318,9 +318,6 @@ def get_middle_anchor(anchor_group, detail=True):
 #         for p in anchor_person:
 #             if not p['fake'] and not 'type' in p:
 #                 print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
-                    
-def prepare_images_for_cloth(video_name, cloth_dict, anchor_group):
-    pass
 
 def view_grid(im_in,ncols=3):
     n,h,w,c = im_in.shape
@@ -442,21 +439,21 @@ def build_people_dict(anchor_dict):
                     anchor = p
                     break
             ## remove repeated person 
-            non_repeat = True
-            for p in people_dict[show]:
-                dist = np.linalg.norm(p['feature'] - anchor['feature'])
-                if dist < FACE_SIM_THRESH:
-                    non_repeat = False
-                    break
-            if non_repeat:        
-                people_dict[show].append(copy.deepcopy(anchor))
+#             non_repeat = True
+#             for p in people_dict[show]:
+#                 dist = np.linalg.norm(p['feature'] - anchor['feature'])
+#                 if dist < FACE_SIM_THRESH:
+#                     non_repeat = False
+#                     break
+#             if non_repeat:        
+            people_dict[show].append(copy.deepcopy(anchor))
                 
 #     pickle.dump(people_dict, open('../data/people_dict.pkl', 'wb'))
     return people_dict
 
 def clean_anchor_dict(anchor_dict, people_dict, repeat_cnt=None):
     FACE_SIM_THRESH = 0.9
-    OTHER_SHOW_THRESH = 30
+    OTHER_SHOW_THRESH = 3
     anchor_dict_new = {}
     for video, anchor_group in anchor_dict.items():
         date, station, show = get_detail_from_video_name(video)
@@ -480,8 +477,8 @@ def clean_anchor_dict(anchor_dict, people_dict, repeat_cnt=None):
             if cnt < OTHER_SHOW_THRESH:
                 anchor_group_new.append(anchor_person)
 #             repeat_cnt.append(cnt)
-#             else:
-#                 print(video, cnt)
+            else:
+                print(video, cnt)
 
         anchor_dict_new[video] = anchor_group_new
     return anchor_dict_new
