@@ -161,9 +161,84 @@ def prepare_images_for_cloth2(video_name, anchor_group):
             res[-1].append(filename)
     return res
 
+def detect_bottom_text(img, start_y=40):
+    img_bright = np.max(img, axis=2)
+    H, W = img_bright.shape
+    img_bright = img_bright.astype('int')
+    img_contrast = np.zeros(img_bright.shape)
+    CONTRAST_THRESH = 96
+    TEXT_THRESH = 0.45
+    HEAD_THRESH = 0.3
+    for y in range(start_y, H):
+        cnt_grad = 0
+        for x in range(W):
+            grad_horiz = False
+            grad_verti = False
+            neighbor = [-2, -1, 1, 2]
+            for i in neighbor:
+                if x+i < 0 or x+i > W-1:
+                    continue
+                if np.fabs(img_bright[y, x+i] - img_bright[y, x]) > CONTRAST_THRESH:
+                    grad_horiz = True
+                    break
+#             for i in neighbor:        
+#                 if y+i < 0 or y+i > H-1:
+#                     continue
+#                 if np.fabs(img_bright[y+i, x] - img_bright[y, x]) > CONTRAST_THRESH:
+#                     grad_verti = True
+#                     break
+            if not grad_horiz: # or not grad_verti:
+                img_contrast[y, x] = 200
+            else:
+                cnt_grad += 1
+        if 1. * cnt_grad / W > TEXT_THRESH:
+            ## too close to head: possibly wearing texture
+#             if 1. * (y-start_y) / (H-start_y) < HEAD_THRESH:
+#                 return img_contrast
+            img_contrast[y, :] = 0
+#             break
+    return img_contrast
+
+def detect_boundary(img, start_y=1):
+    img_bright = np.max(img, axis=2)
+    img_out = copy.deepcopy(img)
+    H, W = img_bright.shape
+    BOUNDARY_THRESH = 215
+    HEAD_THRESH = 0.3
+    dist_list = []
+    for y in range(start_y, H):
+        dist = np.linalg.norm(img_bright[y-2] - img_bright[y]) / np.sqrt(W)
+        dist_list.append(dist)
+        if dist > BOUNDARY_THRESH:
+            ## too close to head: possibly wearing texture
+#             if 1. * (y-start_y) / (H-start_y) < HEAD_THRESH:
+#                 return img_out
+            img_out[y-2:y+1, :, :] = [0, 255, 255]
+    
+    sort_dist = np.argsort(dist_list)[::-1]
+    for i in range(30):
+        print(dist_list[sort_dist[i]])
+    print('+++++++++++++++++++++++++++++++')
+            
+    return img_out
+
+def detect_edge(img, start_y=1):
+    img_out = copy.deepcopy(img)
+    edges = cv2.Canny(img, 80, 80)
+    H, W = edges.shape
+    BOUNDARY_THRESH = 0.5
+    HEAD_THRESH = 0.3
+    for y in range(start_y, H):
+        non_zero = np.count_nonzero(edges[y])
+        if 1. * non_zero / W > BOUNDARY_THRESH:
+            ## too close to head: possibly wearing texture
+#             if 1. * (y-start_y) / (H-start_y) < HEAD_THRESH:
+#                 return img_out
+            img_out[y:y+3, :, :] = [0, 255, 255]
+    return edges
+
 def detect_edge_text(img, start_y=40):
-#     img_out = copy.deepcopy(img)
-    edges = cv2.Canny(img, 40, 80)
+    edges = cv2.Canny(img, 80, 80)
     img_bright = np.max(img, axis=2)
     H, W = img_bright.shape
     img_bright = img_bright.astype('int')
@@ -255,10 +330,22 @@ def prepare_images_for_cloth3(video_name, anchor_group):
                 crop_y2 = min(H-1, Y2)
                 cropped = frame[crop_y1:crop_y2+1, crop_x1:crop_x2+1, :]
                 ## detect edge and text
-                crop_y = detect_edge_text(cropped, y2 - crop_y1)
+                neck_line = y2 - crop_y1
+                body_bound = int(p['body_bound'] * H) - crop_y1
+                crop_y = detect_edge_text(cropped, neck_line)
+                crop_y = min(crop_y, body_bound)
                 cropped = cropped[:crop_y, :, :]        
                 ratio = 1. * cropped.shape[0] / cropped.shape[1]
                 ratio_matrix[index[0]].append(ratio)
+#                 ## compare histogram to find obstacle
+#                 y_med = int((neck_line + crop_y) / 2)
+#                 img_bright = np.max(cropped, axis=2)
+#                 hist_top = cv2.calcHist([img_bright[neck_line:y_med, :]], [0], None, [16], [0, 255])
+#                 hist_bottom = cv2.calcHist([img_bright[y_med:, :]], [0], None, [16], [0, 255])
+#                 ## normalization
+#                 hist_top /= np.linalg.norm(hist_top)
+#                 hist_bottom /= np.linalg.norm(hist_bottom)
+#                 dist = np.linalg.norm(hist_top - hist_bottom)
 #                 text = '{0:.3f}'.format(dist)
 #                 cv2.rectangle(cropped, (0, 0), (cropped.shape[1]-1, 30), color=(255,255,255), thickness=-1)
 #                 cv2.putText(cropped, text, (0,25), cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.7, color=(0,0,0), thickness=2)

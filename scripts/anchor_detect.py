@@ -20,9 +20,19 @@ def detect_single(video_meta, face_list, com_list=None):
     single_person = []
     for shot in face_list:
         if len(shot['faces']) >= 1 and len(shot['faces']) <= 3:
-            for face in shot['faces']:
-                single_person.append({'fid': shot['face_frame'], 'shot': (shot['min_frame'], 
-                    shot['max_frame']), 'bbox': face[0], 'feature': np.array(face[1]), 'face_per_shot': len(shot['faces'])})
+            for i, face in enumerate(shot['faces']):
+                body_bound = 1.0
+                ## detect other face below current face as body bound
+                for j, other_face in enumerate(shot['faces']):
+                    if i != j and face[0]['bbox_y2'] < other_face[0]['bbox_y1']:
+                        center = (face[0]['bbox_x1'] + face[0]['bbox_x2']) / 2
+                        crop_x1 = int(center - face[0]['bbox_x2'] + face[0]['bbox_x1'])
+                        crop_x2 = int(center + face[0]['bbox_x2'] - face[0]['bbox_x1'])
+                        if other_face[0]['bbox_x1'] < crop_x2 or other_face[0]['bbox_x2'] > crop_x1:
+                            body_bound = other_face[0]['bbox_y1'] 
+                
+                single_person.append({'fid': shot['face_frame'], 'shot': (shot['min_frame'], shot['max_frame']),
+                    'bbox': face[0], 'feature': np.array(face[1]), 'face_per_shot': len(shot['faces']), 'body_bound': body_bound})
 #     print(len(single_person))
 
     # remove face in commercial
@@ -625,7 +635,7 @@ def detect_anchor_parallel(video_list_path, anchor_dict_path=None, plot_c=False,
     pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
     
     # post process
-#     people_dict = build_people_dict(anchor_dict)
-#     anchor_dict = clean_anchor_dict(anchor_dict, people_dict)
+    people_dict = build_people_dict(anchor_dict)
+    anchor_dict = clean_anchor_dict(anchor_dict, people_dict)
 
-#     pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
+    pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
