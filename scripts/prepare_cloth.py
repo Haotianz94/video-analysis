@@ -148,7 +148,6 @@ def prepare_images_for_cloth2(video_name, anchor_group):
 #                 type_table[p['type']] = 0
     
     res = []
-    
     NUM_ANCHOR = 5
     folder = '../data/cloth/'
     for i, anchor_person in enumerate(anchor_group):
@@ -161,7 +160,7 @@ def prepare_images_for_cloth2(video_name, anchor_group):
             res[-1].append(filename)
     return res
 
-def detect_bottom_text(img, start_y=40):
+def detect_text(img, start_y=40):
     img_bright = np.max(img, axis=2)
     H, W = img_bright.shape
     img_bright = img_bright.astype('int')

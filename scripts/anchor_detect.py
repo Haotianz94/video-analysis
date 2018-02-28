@@ -7,7 +7,6 @@ from pathlib import Path
 import codecs
 import math
 import multiprocessing as mp
-from skimage.util import view_as_blocks
 import copy
 from sklearn.cluster import KMeans
 import os
@@ -329,16 +328,6 @@ def get_middle_anchor(anchor_group, detail=True):
 #             if not p['fake'] and not 'type' in p:
 #                 print("++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
 
-def view_grid(im_in,ncols=3):
-    n,h,w,c = im_in.shape
-    dn = (-n)%ncols # trailing images
-    im_out = (np.empty((n+dn)*h*w*c,im_in.dtype)
-           .reshape(-1,w*ncols,c))
-    view=view_as_blocks(im_out,(h,w,c))
-    for k,im in enumerate( list(im_in) + dn*[0] ):
-        view[k//ncols,k%ncols,0] = im 
-    return im_out
-
 def plot_cluster(video_name, video_meta, anchor_group):
     fps = video_meta['fps']
     video_path = '../data/videos/' + video_name + '.mp4'
@@ -435,6 +424,17 @@ def solve_single_video(video_name, video_meta, face_list, com_list, plot_d=False
         plot_distribution(video_meta, anchor_group, com_list)
     return anchor_group
 
+def build_anchor_center(anchor_dict):
+    anchor_center_dict = {}
+    for video, anchor_group in anchor_dict.items():
+        anchor_center_dict[video] = []
+        for anchor_person in anchor_group:
+            for p in anchor_person:
+                if p['sim'] == 0:
+                    anchor_center_dict[video].append(p)
+                    break
+    return anchor_center_dict
+
 def build_people_dict(anchor_dict):
     FACE_SIM_THRESH = 0.5
     people_dict = {}
@@ -449,14 +449,14 @@ def build_people_dict(anchor_dict):
                     anchor = p
                     break
             ## remove repeated person 
-#             non_repeat = True
-#             for p in people_dict[show]:
-#                 dist = np.linalg.norm(p['feature'] - anchor['feature'])
-#                 if dist < FACE_SIM_THRESH:
-#                     non_repeat = False
-#                     break
-#             if non_repeat:        
-            people_dict[show].append(copy.deepcopy(anchor))
+            non_repeat = True
+            for p in people_dict[show]:
+                dist = np.linalg.norm(p['feature'] - anchor['feature'])
+                if dist < FACE_SIM_THRESH:
+                    non_repeat = False
+                    break
+            if non_repeat:        
+                people_dict[show].append(copy.deepcopy(anchor))
                 
 #     pickle.dump(people_dict, open('../data/people_dict.pkl', 'wb'))
     return people_dict

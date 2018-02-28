@@ -1,4 +1,15 @@
 import numpy as np
+from skimage.util import view_as_blocks
+
+def view_grid(im_in,ncols=3):
+    n,h,w,c = im_in.shape
+    dn = (-n)%ncols # trailing images
+    im_out = (np.empty((n+dn)*h*w*c,im_in.dtype)
+           .reshape(-1,w*ncols,c))
+    view=view_as_blocks(im_out,(h,w,c))
+    for k,im in enumerate( list(im_in) + dn*[0] ):
+        view[k//ncols,k%ncols,0] = im 
+    return im_out
 
 def get_detail_from_video_name(video_name):
     split = video_name.split('_')
