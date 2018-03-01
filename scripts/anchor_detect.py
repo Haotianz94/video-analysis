@@ -57,7 +57,7 @@ def detect_anchor(video_name, video_meta, single_person, com_list=None, detail=T
     FACE_SIM_THRESH = 1.0
 
     ## detect anchor by Kmeans
-    NUM_CLUSTER = 5
+    NUM_CLUSTER = 10
     N = len(single_person)
     if N < NUM_CLUSTER:
         return None
@@ -389,7 +389,7 @@ def plot_distribution(video_meta, anchor_group, com_list=None):
     video_length = video_meta['video_length']
     fig = plt.figure()
     fig.set_size_inches(14, 4)
-    color = ['b', 'g', 'y', 'c', 'k']
+    color = ['b', 'g', 'y', 'c', 'k', 'b', 'g', 'y', 'c', 'k']
     for i in range(len(anchor_group)):
         anchor_person = anchor_group[i]
         for p in anchor_person:
@@ -463,7 +463,7 @@ def build_people_dict(anchor_dict):
 
 def clean_anchor_dict(anchor_dict, people_dict, repeat_cnt=None):
     FACE_SIM_THRESH = 0.9
-    OTHER_SHOW_THRESH = 3
+    OTHER_SHOW_THRESH = 85
     anchor_dict_new = {}
     for video, anchor_group in anchor_dict.items():
         date, station, show = get_detail_from_video_name(video)
@@ -487,8 +487,11 @@ def clean_anchor_dict(anchor_dict, people_dict, repeat_cnt=None):
             if cnt < OTHER_SHOW_THRESH:
                 anchor_group_new.append(anchor_person)
 #             repeat_cnt.append(cnt)
-            else:
-                print(video, cnt)
+#             else:
+#                 print(video, anchor['fid'], anchor['bbox'], cnt)
+#                 url = 'http://104.198.10.97/frameserver/fetch?path=tvnews%2Fvideos%2F' + video + '.mp4&frame=' + str(anchor['fid'])
+#                 print(url)
+#                 print('')
 
         anchor_dict_new[video] = anchor_group_new
     return anchor_dict_new
@@ -634,8 +637,8 @@ def detect_anchor_parallel(video_list_path, anchor_dict_path=None, plot_c=False,
     
     pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
     
-    # post process
-    people_dict = build_people_dict(anchor_dict)
-    anchor_dict = clean_anchor_dict(anchor_dict, people_dict)
+#     # post process
+#     people_dict = build_people_dict(anchor_dict)
+#     anchor_dict = clean_anchor_dict(anchor_dict, people_dict)
 
-    pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
+#     pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
