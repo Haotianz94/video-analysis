@@ -11,6 +11,8 @@ import copy
 from sklearn.cluster import KMeans
 import os
 from utility import *
+# from hwang import Decoder
+# from storehouse import StorageConfig, StorageBackend, RandomReadFile
 
 def detect_single(video_meta, face_list, com_list=None):
     fps = video_meta['fps']
@@ -57,7 +59,7 @@ def detect_anchor(video_name, video_meta, single_person, com_list=None, detail=T
     FACE_SIM_THRESH = 1.0
 
     ## detect anchor by Kmeans
-    NUM_CLUSTER = 10
+    NUM_CLUSTER = 5
     N = len(single_person)
     if N < NUM_CLUSTER:
         return None
@@ -220,14 +222,13 @@ def detect_anchor(video_name, video_meta, single_person, com_list=None, detail=T
     
     ## reorder 
     for i, anchor_person in enumerate(anchor_group):
-#         for j, p in enumerate(anchor_side[i]):
-#             anchor_side[i][j]['fake'] = True    
         for j, p in enumerate(anchor_group[i]):
             anchor_group[i][j]['fake'] = False
             sim = np.linalg.norm(anchor_center[i]['feature'] - p['feature'])
             anchor_group[i][j]['sim'] = sim
         
 #         for j, p in enumerate(anchor_side[i]):
+#             anchor_side[i][j]['fake'] = True    
 #             sim = np.linalg.norm(anchor_center[i]['feature'] - p['feature'])
 #             anchor_side[i][j]['sim'] = sim
             
@@ -337,10 +338,17 @@ def plot_cluster(video_name, video_meta, anchor_group):
         return 
     fid = 1
     H, W, C = frame.shape
-    anchor_all = []
+    anchor_true = []
+    anchor_false = []
     for anchor_person in anchor_group:
         N = len(anchor_person)
-        anchor_all.append(np.zeros((N, H, W, C)))
+        cnt = 0
+        for p in anchor_person:
+            if p['fake'] == False:
+                cnt += 1 
+        anchor_true.append(np.zeros((cnt, H, W, C)))
+        if N != cnt:
+            anchor_false.append(np.zeros((N-cnt, H, W, C)))
     while(True):
         ret, frame = cap.read()
         if not ret:
@@ -354,35 +362,38 @@ def plot_cluster(video_name, video_meta, anchor_group):
                     y1 = int(face['bbox']['bbox_y1'] * H)
                     x2 = int(face['bbox']['bbox_x2'] * W)
                     y2 = int(face['bbox']['bbox_y2'] * H)
-                    if face['fake'] == True:
-                        cv2.rectangle(img, (x1, y1), (x2, y2), color=(255,255,255), thickness=3)
-#                     elif face['type'] == 'large':
-#                         cv2.rectangle(img, (x1, y1), (x2, y2), color=(0,0,255), thickness=3)
-#                     else:
-#                         cv2.rectangle(img, (x1, y1), (x2, y2), color=(255,0,0), thickness=3)
-                    else:
-                        color = [(0, 0, 255), (255, 0, 0), (0, 255, 0), (255, 0, 255), (255, 255, 0), (0, 255, 255), (128, 128, 255), (128, 255, 128)]
-                        cv2.rectangle(img, (x1, y1), (x2, y2), color=color[face['type']], thickness=3)
-                        if face['sim'] == 0:
-                            filename = '../tmp/anchor_single/' + video_name + '_' + str(i) + '.jpg'
-                            cv2.imwrite(filename, img)
                     
                     time = get_time_from_fid(fid, fps)
                     text = str(fid) + '|' + str(time) + '|' + '{0:.3f}'.format(face['sim'])
                     cv2.rectangle(img, (0, 0), (320, 30), color=(255,255,255), thickness=-1)
                     cv2.putText(img, text, (0,25), cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.7, color=(0,0,0), thickness=2)
-#                         cv2.circle(img, (620, 20), 20, color=(255,255,255), thickness=-1)
-                    anchor_all[i][j] = img
-                    break
+                    
+                    if face['fake'] == False:
+                        color = [(0, 0, 255), (255, 0, 0), (0, 255, 0), (255, 0, 255), (255, 255, 0), (0, 255, 255), (128, 128, 255), (128, 255, 128)]
+#                         cv2.rectangle(img, (x1, y1), (x2, y2), color=color[face['type']], thickness=3)
+                        cv2.rectangle(img, (x1, y1), (x2, y2), color=color[0], thickness=3)
+#                         if face['sim'] == 0:
+#                             filename = '../tmp/anchor_single/' + video_name + '_' + str(i) + '.jpg'
+#                             cv2.imwrite(filename, img)
+                        anchor_true[i][j] = img
+                    else:
+                        cv2.rectangle(img, (x1, y1), (x2, y2), color=(255,255,255), thickness=3)
+                        anchor_false[i][j - len(anchor_true[i])] = img
         fid += 1
     cap.release()
 
-    for i in range(len(anchor_all)):
-        grid = view_grid(anchor_all[i], 5)
+    for i in range(len(anchor_true)):
+        grid = view_grid(anchor_true[i], 5)
         H, W, C = grid.shape
         filename = '../tmp/anchor/' + video_name + '_' + str(i) + '.jpg'
         grid_small = cv2.resize(grid, (1920, int(H/W*1920)))
         cv2.imwrite(filename, grid_small)
+    for i in range(len(anchor_false)):
+        grid = view_grid(anchor_false[i], 5)
+        H, W, C = grid.shape
+        filename = '../tmp/anchor/' + video_name + '_' + str(i) + '_fake.jpg'
+        grid_small = cv2.resize(grid, (1920, int(H/W*1920)))
+        cv2.imwrite(filename, grid_small) 
     
 def plot_distribution(video_meta, anchor_group, com_list=None):
     fps = video_meta['fps']    
@@ -423,17 +434,6 @@ def solve_single_video(video_name, video_meta, face_list, com_list, plot_d=False
     if plot_d:
         plot_distribution(video_meta, anchor_group, com_list)
     return anchor_group
-
-def build_anchor_center(anchor_dict):
-    anchor_center_dict = {}
-    for video, anchor_group in anchor_dict.items():
-        anchor_center_dict[video] = []
-        for anchor_person in anchor_group:
-            for p in anchor_person:
-                if p['sim'] == 0:
-                    anchor_center_dict[video].append(p)
-                    break
-    return anchor_center_dict
 
 def build_people_dict(anchor_dict):
     FACE_SIM_THRESH = 0.5
@@ -633,7 +633,9 @@ def detect_anchor_parallel(video_list_path, anchor_dict_path=None, plot_c=False,
         if not dict_file.is_file():
             continue
         anchor_dict_tmp = pickle.load(open(path, "rb" ))
-        anchor_dict = {**anchor_dict, **anchor_dict_tmp}
+#         anchor_dict = {**anchor_dict, **anchor_dict_tmp}
+        for key, value in anchor_dict_tmp.items():
+            anchor_dict[key] = value
     
     pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
     

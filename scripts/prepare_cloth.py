@@ -366,19 +366,24 @@ def prepare_cloth_crop(video_name, anchor_group, storage):
             ratio = 1. * cropped.shape[0] / cropped.shape[1]
             ratio_matrix[index[0]].append(ratio)
             p['frame'] = cropped
+            p['bbox']['bbox_x1'] -= crop_x1
+            p['bbox']['bbox_x2'] -= crop_x1
+            p['bbox']['bbox_y1'] -= crop_y1
+            p['bbox']['bbox_y2'] -= crop_y1
 
     res = []
-    NUM_ANCHOR = 20
-    folder = '../data/cloth_label'
+    NUM_ANCHOR = 5
+    folder = '../data/cloth/cloth_half0'
     if not Path(folder).is_dir():
         os.mkdir(folder)
     for i, anchor_person in enumerate(anchor_group):
         top_ratio = np.argsort(ratio_matrix[i])[::-1]
         num_anchor = min(NUM_ANCHOR, len(top_ratio))
         for j in range(num_anchor):
+            p = anchor_person[top_ratio[j]]
             filename = video_name + '_' + '{:02}'.format(i) + '_' + '{:02}'.format(j) + '.jpg'
-            cv2.imwrite(os.path.join(folder, filename), anchor_person[top_ratio[j]]['frame'])
-            res.append([video_name, i, filename])
+            cv2.imwrite(os.path.join(folder, filename), p['frame'])
+            res.append([video_name, i, filename, p['bbox']])
     return res
 
 def solve_single_video(video_name, anchor_group, storage):
@@ -394,18 +399,18 @@ def solve_thread(anchor_dict_t, tmp_dict_path, thread_id):
     storage = StorageBackend.make_from_config(StorageConfig.make_gcs_config('esper'))
     
     i = 0
-    video_list = sorted(anchor_dict_t)
-    sample = np.random.choice(len(video_list), 40)
-#     for video_name in sorted(anchor_dict_t):
-    for idx in sample:
-        video_name = video_list[idx]
+#     video_list = sorted(anchor_dict_t)
+#     sample = np.random.choice(len(video_list), 40)
+#     for idx in sample:
+    for video_name in sorted(anchor_dict_t):
+#         video_name = video_list[idx]
         video_length = meta_dict[video_name]['video_length']
         if video_name in meta_dict and (video_length < 3000 or video_length > 4000):
             continue
         print("Thread %d start %dth video: %s" % (thread_id, i, video_name))
         res = solve_single_video(video_name, anchor_dict_t[video_name], storage)
         res_dict.extend(res)
-#         if i % 1 == 0:
+#         if i % 5 == 0:
         pickle.dump(res_dict, open(tmp_dict_path, "wb"), protocol=2)
         i += 1
             
@@ -416,12 +421,12 @@ def solve_parallel(anchor_dict, res_dict_path=None, nthread=16, use_process=True
     video_list = sorted(anchor_dict)
     
     ## remove exist video
-#     dict_file = Path(res_dict_path)
-#     if dict_file.is_file():
-#         res_dict = pickle.load(open(res_dict_path, "rb" ))
+    dict_file = Path(res_dict_path)
+    if dict_file.is_file():
+        res_dict = pickle.load(open(res_dict_path, "rb" ))
 #         video_list = [video for video in video_list if video not in res_dict]
-#     else:
-    res_dict = []
+    else:
+        res_dict = []
 
     num_video = len(video_list)
     print(num_video)
@@ -451,7 +456,7 @@ def solve_parallel(anchor_dict, res_dict_path=None, nthread=16, use_process=True
 
         anchor_dict_t = {}
         for video in video_list_t:
-            anchor_dict_t[video] = copy.deepcopy(anchor_dict[video])
+            anchor_dict_t[video] = anchor_dict[video]
             
         if use_process:
             t = mp.Process(target=solve_thread, args=(anchor_dict_t, tmp_dict_list[i], i,))
@@ -464,7 +469,7 @@ def solve_parallel(anchor_dict, res_dict_path=None, nthread=16, use_process=True
         t.start()
     for t in thread_list:
         t.join()
-    
+        
     for path in tmp_dict_list:
         dict_file = Path(path)
         if not dict_file.is_file():

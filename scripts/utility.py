@@ -1,4 +1,5 @@
 import numpy as np
+import cv2
 from skimage.util import view_as_blocks
 
 def view_grid(im_in,ncols=3):
@@ -10,6 +11,23 @@ def view_grid(im_in,ncols=3):
     for k,im in enumerate( list(im_in) + dn*[0] ):
         view[k//ncols,k%ncols,0] = im 
     return im_out
+
+def stitch_img_grid(images, grid_h, grid_w, num_row):
+    images_np = np.zeros((len(images), grid_h, grid_w, 3))
+    for i, im in enumerate(images):
+        if im is None:
+            continue
+        H, W, C = im.shape
+        if 1. * H / W <= 2: 
+            w = grid_w
+            h = int(1. * H / W * w) 
+        else:
+            h = grid_h
+            w = int(1. * W / H * h)
+        im_regular = cv2.resize(im, (w, h))
+        images_np[i, :h, :w, :] = im_regular
+    grid = view_grid(images_np, num_row)    
+    return grid    
 
 def get_detail_from_video_name(video_name):
     split = video_name.split('_')
