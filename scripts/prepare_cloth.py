@@ -366,10 +366,10 @@ def prepare_cloth_crop(video_name, anchor_group, storage):
             ratio = 1. * cropped.shape[0] / cropped.shape[1]
             ratio_matrix[index[0]].append(ratio)
             p['frame'] = cropped
-            p['bbox']['bbox_x1'] -= crop_x1
-            p['bbox']['bbox_x2'] -= crop_x1
-            p['bbox']['bbox_y1'] -= crop_y1
-            p['bbox']['bbox_y2'] -= crop_y1
+            p['bbox']['bbox_x1'] = x1 - crop_x1
+            p['bbox']['bbox_x2'] = x2 - crop_x1
+            p['bbox']['bbox_y1'] = y1 - crop_y1
+            p['bbox']['bbox_y2'] = y2 - crop_y1
 
     res = []
     NUM_ANCHOR = 5
@@ -384,6 +384,7 @@ def prepare_cloth_crop(video_name, anchor_group, storage):
             filename = video_name + '_' + '{:02}'.format(i) + '_' + '{:02}'.format(j) + '.jpg'
             cv2.imwrite(os.path.join(folder, filename), p['frame'])
             res.append([video_name, i, filename, p['bbox']])
+#             res.append([video_name, i, filename])
     return res
 
 def solve_single_video(video_name, anchor_group, storage):
@@ -479,3 +480,56 @@ def solve_parallel(anchor_dict, res_dict_path=None, nthread=16, use_process=True
         res_dict.extend(res_dict_tmp)
     
     pickle.dump(res_dict, open(res_dict_path, "wb" ), protocol=2)  
+    
+def solve_parallel_memory(anchor_dict, res_dict_path=None, nthread=16, use_process=True):
+    video_list = sorted(anchor_dict)
+    
+    ## remove exist video
+    dict_file = Path(res_dict_path)
+    if dict_file.is_file():
+        res_dict = pickle.load(open(res_dict_path, "rb" ))
+#         video_list = [video for video in video_list if video not in res_dict]
+    else:
+        res_dict = []
+
+    tmp_dict_list = []
+    for i in range(nthread):
+        tmp_dict_list.append('../tmp/cloth_dict_' + str(i) + '.pkl')
+    
+    NUM_PER_THREAD = 50
+    cur_idx = 0
+    while cur_idx < len(video_list):  
+        thread_list = []
+        tmp_dict_list_used = []
+        for i in range(nthread):
+            if cur_idx >= len(video_list):
+                break
+            end_idx = cur_idx + NUM_PER_THREAD
+            if end_idx > len(video_list):
+                end_idx = len(video_list)
+            anchor_dict_t = {}
+            for video in video_list[cur_idx : end_idx]:
+                anchor_dict_t[video] = anchor_dict[video]
+            cur_idx = end_idx
+
+            if use_process:
+                t = mp.Process(target=solve_thread, args=(anchor_dict_t, tmp_dict_list[i], i,))
+            else:
+                t = threading.Thread(target=solve_thread, args=(anchor_dict_t, tmp_dict_list[i], i,))
+                t.setDaemon(True)
+            thread_list.append(t)
+            tmp_dict_list_used.append(tmp_dict_list[i])
+
+        for t in thread_list:
+            t.start()
+        for t in thread_list:
+            t.join()
+
+        for path in tmp_dict_list_used:
+            dict_file = Path(path)
+            if not dict_file.is_file():
+                continue
+            res_dict_tmp = pickle.load(open(path, "rb" ))
+            res_dict.extend(res_dict_tmp)
+
+        pickle.dump(res_dict, open(res_dict_path, "wb" ), protocol=2)  

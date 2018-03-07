@@ -13,13 +13,22 @@ def build_anchor_center(anchor_dict):
     return anchor_center_dict
 
 def group_by_show(random_dict):
-    dict__by_show = {}
+    dict_by_show = {}
     for video, group in random_dict.items():
         data, station, show = get_detail_from_video_name(video)
-        if not show in dict__by_show:
-            dict__by_show[show] = {}
-        dict__by_show[show][video] = group
-    return dict__by_show
+        if not show in dict_by_show:
+            dict_by_show[show] = {}
+        dict_by_show[show][video] = group
+    return dict_by_show
+
+def group_by_station(random_dict):
+    dict_by_station = {}
+    for video, group in random_dict.items():
+        data, station, show = get_detail_from_video_name(video)
+        if not station in dict_by_station:
+            dict_by_station[station] = {}
+        dict_by_station[station][video] = group
+    return dict_by_station
 
 def cluster_real_anchor(anchor_dict):
     ## cluster from centers
