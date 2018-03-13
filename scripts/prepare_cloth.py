@@ -302,11 +302,12 @@ def prepare_cloth_crop_local(video_name, anchor_group):
             res.append([video_name, i, filename])
     return res
 
-def prepare_cloth_crop(video_name, anchor_group, storage):
+def prepare_cloth_crop(video_name, anchor_group, video_frames, storage):
     ## return [] if anchor_group is empty
     if len(anchor_group) == 0:
         return []
-
+    
+    ENDING_FRAME = video_frames - 200
     ## collect face by fid
     fid2person = {}
     ratio_matrix = []
@@ -314,7 +315,7 @@ def prepare_cloth_crop(video_name, anchor_group, storage):
         for j, p in enumerate(anchor_person):
             if not p['fake']:
                 ### for bug in hwang when loading frames at the end of the video
-                if p['fid'] > 109500:
+                if p['fid'] > ENDING_FRAME:
                     break
                 ###
                 if not p['fid'] in fid2person:
@@ -387,8 +388,8 @@ def prepare_cloth_crop(video_name, anchor_group, storage):
 #             res.append([video_name, i, filename])
     return res
 
-def solve_single_video(video_name, anchor_group, storage):
-    res = prepare_cloth_crop(video_name, anchor_group, storage)
+def solve_single_video(video_name, anchor_group, video_frames, storage):
+    res = prepare_cloth_crop(video_name, anchor_group, video_frames, storage)
     return res
 
 def solve_thread(anchor_dict_t, tmp_dict_path, thread_id):
@@ -406,13 +407,14 @@ def solve_thread(anchor_dict_t, tmp_dict_path, thread_id):
     for video_name in sorted(anchor_dict_t):
 #         video_name = video_list[idx]
         video_length = meta_dict[video_name]['video_length']
-        if video_name in meta_dict and (video_length < 3000 or video_length > 4000):
-            continue
+        video_frames = int(meta_dict[video_name]['video_length'] * meta_dict[video_name]['fps'])
+#         if video_name in meta_dict and (video_length < 3000 or video_length > 4000):
+#             continue
         print("Thread %d start %dth video: %s" % (thread_id, i, video_name))
-        res = solve_single_video(video_name, anchor_dict_t[video_name], storage)
+        res = solve_single_video(video_name, anchor_dict_t[video_name], video_frames, storage)
         res_dict.extend(res)
-#         if i % 5 == 0:
-        pickle.dump(res_dict, open(tmp_dict_path, "wb"), protocol=2)
+#         if i % 10 == 0:
+#             pickle.dump(res_dict, open(tmp_dict_path, "wb"), protocol=2)
         i += 1
             
     pickle.dump(res_dict, open(tmp_dict_path, "wb"), protocol=2)
@@ -496,7 +498,7 @@ def solve_parallel_memory(anchor_dict, res_dict_path=None, nthread=16, use_proce
     for i in range(nthread):
         tmp_dict_list.append('../tmp/cloth_dict_' + str(i) + '.pkl')
     
-    NUM_PER_THREAD = 50
+    NUM_PER_THREAD = 20
     cur_idx = 0
     while cur_idx < len(video_list):  
         thread_list = []

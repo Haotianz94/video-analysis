@@ -108,4 +108,24 @@ def check_non_anchor_by_show(anchor_dict, show_name):
             print("Not enough real anchor: %s" % video)
         elif non_zero > len(real_anchor):
             print("To much real anchor: %s" % video)
+
+def split_dataset(data, meta, labels, test_ratio=0.2):
+    N = len(data)
+    test_idx = np.random.choice(int(test_ratio * N), N)
+    data_train = []
+    data_test = []
+    meta_train = []
+    meta_test = []
+    labels_train = []
+    labels_test = []
+    for idx in range(N):
+        if idx in test_idx:
+            data_test.append(data[idx])
+            meta_test.append(meta[idx])
+            labels_test.append(labels[idx])
+        else:
+            data_train.append(data[idx])
+            meta_train.append(meta[idx])
+            labels_train.append(labels[idx])
+    return data_train, meta_train, labels_train, data_test, meta_test, labels_test            
             

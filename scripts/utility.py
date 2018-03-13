@@ -12,30 +12,104 @@ def view_grid(im_in,ncols=3):
         view[k//ncols,k%ncols,0] = im 
     return im_out
 
-def stitch_img_grid(images, grid_h, grid_w, num_row, deform=False):
-    images_np = np.zeros((len(images), grid_h, grid_w, 3))
+def pad_image_height(img, bbox, size=None):
+    H, W, C = img.shape
+    newH = W * 2
+    cy = int((bbox['bbox_y1'] + bbox['bbox_y2']) / 2)
+    ratio = 1. * cy / newH - 1./3
+    pad = int(1./3 * newH - cy)
+    img_new = np.zeros((newH, W, 3))
+    if pad == 0:
+        img_new = img
+    elif ratio < 0:
+        y1 = pad
+        y2 = min(newH, pad+H)
+        img_new[y1 : y2] = img[:y2-y1]
+    else:
+        y1 = 0
+        y2 = min(newH, H)
+        img_new[y1 : y2] = img[:y2-y1]
+    
+    if not size is None:
+        img_resize = resize_image(img_new, size, deform=True)
+        return img_resize
+    else:
+        return img_new
+
+def resize_image(img, size, deform=False):
+    H, W, C = img.shape
+    grid_h, grid_w = size
+    if not deform:
+        if 1. * H / W <= 2: 
+            w = grid_w
+            h = int(1. * H / W * w) 
+        else:
+            h = grid_h
+            w = int(1. * W / H * h)
+        img_resize = cv2.resize(img, (w, h))
+    else:
+        img_resize = cv2.resize(img, (grid_w, grid_h))
+    return img_resize
+
+def average_image(images, size=None):
+    if len(images) == 0:
+        return None
+    if size is None:
+        H, W, C = images[0].shape
+    else:
+        H, W = size
+        C = images[0].shape[2]
+    img_avg = np.zeros((H, W, C))
+    for img in images:
+        if not size is None:
+            img_resize = resize_image(img, size, deform=True)
+            img_avg += img_resize
+        else:
+            img_avg += img
+    img_avg /= (1. * len(images))
+    return img_avg
+
+def stitch_img_grid(images, num_col, size=None, deform=False, average_row=False):
+    if len(images) == 0:
+        return None
+    if not size is None:
+        grid_h, grid_w = size
+        C = images[0].shape[2]
+    else:
+        grid_h, grid_w, C = images[0].shape
+        
+    if average_row:
+        num_row = len(images) / num_col
+        images_np = np.zeros((len(images) + num_row, grid_h, grid_w, C))
+    else:
+        images_np = np.zeros((len(images), grid_h, grid_w, C))
+    idx = 0
+    images_row = []
     for i, im in enumerate(images):
         if im is None:
             continue
-        H, W, C = im.shape
-        if not deform:
-            if 1. * H / W <= 2: 
-                w = grid_w
-                h = int(1. * H / W * w) 
-            else:
-                h = grid_h
-                w = int(1. * W / H * h)
-            im_resize = cv2.resize(im, (w, h))
-            images_np[i, :h, :w, :] = im_resize
+        if size is None:
+            images_np[idx] = im
         else:
-            im_resize = cv2.resize(im, (grid_w, grid_h))
-            images_np[i] = im_resize
-    grid = view_grid(images_np, num_row)    
+            img_resize = resize_image(im, (grid_h, grid_w), deform)
+            h, w, c = img_resize.shape
+            images_np[idx, :h, :w, :] = img_resize
+
+        images_row.append(images_np[idx])
+        idx += 1
+        if average_row and i % num_col == num_col-1:
+            images_np[idx] = average_img(images_row, None)
+            idx += 1
+            images_row = []
+    if average_row:        
+        grid = view_grid(images_np, num_col+1)
+    else:
+        grid = view_grid(images_np, num_col)
     return grid    
 
 def get_detail_from_video_name(video_name):
     split = video_name.split('_')
-    date = get_date_from_string(split[1])
+    date = get_date_from_string(split[1], split[2])
     station = split[0][:-1]
     if station == 'CNN':
         show = video_name[21:]
@@ -45,8 +119,8 @@ def get_detail_from_video_name(video_name):
         show = video_name[23:]
     return date, station, show
 
-def get_date_from_string(str):
-    return (int(str[:4]), int(str[4:6]), int(str[6:]))
+def get_date_from_string(str1, str2):
+    return (int(str1[:4]), int(str1[4:6]), int(str1[6:]), int(str2[:2]), int(str2[2:4]), int(str2[4:]))
 
 def compare_date(date1, date2):
     if date1[0] < date2[0]:

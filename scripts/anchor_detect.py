@@ -19,9 +19,14 @@ def detect_single(video_meta, face_list, com_list=None):
     video_length = video_meta['video_length']
 
     single_person = []
+    cnt_face = 0
     for shot in face_list:
+        cnt_face += len(shot['faces'])
         if len(shot['faces']) >= 1 and len(shot['faces']) <= 3:
             for i, face in enumerate(shot['faces']):
+                face_area = (face[0]['bbox_y2'] - face[0]['bbox_y1']) * (face[0]['bbox_x2'] - face[0]['bbox_x1'])
+                if face_area < 0.02 and face[0]['bbox_y1'] > 0.5:
+                    continue
                 body_bound = 1.0
                 ## detect other face below current face as body bound
                 for j, other_face in enumerate(shot['faces']):
@@ -49,7 +54,7 @@ def detect_single(video_meta, face_list, com_list=None):
                     break
             if not is_in_com:
                 single_person.append(p)
-    print(len(single_person))
+#     print(cnt_face, len(single_person))
     return single_person
     
 def detect_anchor(video_name, video_meta, single_person, com_list=None, detail=True):
@@ -59,7 +64,7 @@ def detect_anchor(video_name, video_meta, single_person, com_list=None, detail=T
     FACE_SIM_THRESH = 1.0
 
     ## detect anchor by Kmeans
-    NUM_CLUSTER = 5
+    NUM_CLUSTER = 10
     N = len(single_person)
     if N < NUM_CLUSTER:
         return None
@@ -78,28 +83,69 @@ def detect_anchor(video_name, video_meta, single_person, com_list=None, detail=T
         cluster_center.append(single_person[np.argmin(sim)])
 
     ## find same face for each cluster center
-    FACE_SIM_SIDE_THRESH = 1.25
-    cluster = []
-    cluster_side = []
-    for i in range(NUM_CLUSTER):
-        group = []
-        side = []
-        center = cluster_center[i]
-        for p in single_person:
+#     FACE_SIM_SIDE_THRESH = 1.25
+#     cluster = []
+#     cluster_side = []
+#     for i in range(NUM_CLUSTER):
+#         group = []
+#         side = []
+#         center = cluster_center[i]
+#         for p in single_person:
+#             sim = np.linalg.norm(p['feature'] - center['feature'])
+#             if sim < FACE_SIM_THRESH:
+#                 group.append(copy.deepcopy(p))
+#             elif sim < FACE_SIM_SIDE_THRESH:
+#                 side.append(copy.deepcopy(p))
+#         cluster.append(group)
+#         cluster_side.append(side)
+        
+    ## find same face for each cluster center (exclusive)
+    cluster = [[] for i in range(NUM_CLUSTER)]
+    cluster_side = [[] for i in range(NUM_CLUSTER)]
+    for p in single_person:
+        sims = []
+        for i in range(NUM_CLUSTER):
+            center = cluster_center[i]
             sim = np.linalg.norm(p['feature'] - center['feature'])
-            if sim < FACE_SIM_THRESH:
-#                 group.append(p)
-                group.append(copy.deepcopy(p))
-            elif sim < FACE_SIM_SIDE_THRESH:
-#                 side.append(p)
-                side.append(copy.deepcopy(p))
-        cluster.append(group)
-        cluster_side.append(side)
+            sims.append(sim)
+        sim_min_c = np.argmin(sims)
+        if sims[sim_min_c] < FACE_SIM_THRESH:
+            cluster[sim_min_c].append(copy.deepcopy(p))
+    
+    ## merge similar clusters
+    MERGE_THRESH = 0.9
+    while True:
+        merge_pair = None
+        for i, c1 in enumerate(cluster_center):
+            if not merge_pair is None:
+                break
+            for j in range(i+1, len(cluster_center)):
+                c2 = cluster_center[j]
+                sim = np.linalg.norm(c1['feature']- c2['feature'])
+                if sim < MERGE_THRESH:
+                    if detail:
+                        print("Similarity between center %d and center %d = %f" % (i, j, sim))
+                    if len(cluster[i]) < len(cluster[j]):
+                        merge_pair = (i, j)
+                    else:
+                        merge_pair = (i, j)
+                    break
+        if not merge_pair is None:
+            center = cluster_center[merge_pair[1]]
+            for p in cluster[merge_pair[0]]:
+                sim = np.linalg.norm(p['feature']- center['feature'])
+                if sim < FACE_SIM_THRESH:
+                    cluster[merge_pair[1]].append(p)
+            del cluster[merge_pair[0]]
+            del cluster_center[merge_pair[0]]
+            del cluster_side[merge_pair[0]]
+        else:
+            break
         
     ## remove noise face by calculating average similiraty
     FACE_SIM_THRESH_CLUSTER = 0.95
-    for i in range(NUM_CLUSTER):
-        if len(cluster[i]) == 1:
+    for i in range(len(cluster)):
+        if len(cluster[i]) <= 1:
             continue
         sim = []
         for p1 in cluster[i]:
@@ -127,83 +173,63 @@ def detect_anchor(video_name, video_meta, single_person, com_list=None, detail=T
         if detail:
             print("Cluster %d: %d faces -> %d faces" % (i, origin_faces, len(cluster[i])))
     
-    ## calculate the cluster coverage
+    ## calculate the cluster coverage, duration, first appear time
     BIN_WIDTH = 150
     coverage = []
-    anchor_group = []
-    com_length = 0
-    if not com_list is None:
-        for com in com_list:
-            com_length += get_time_difference(com[0][1], com[1][1])
-    for i in range(NUM_CLUSTER):
+    duration = []
+    firstAppear = []
+    shotGap = []
+    for i in range(len(cluster)):
         bins = np.zeros(int(video_length / BIN_WIDTH)+1)
-        for p in cluster[i]:
+        dua = 0
+        gaps = []
+        for j, p in enumerate(cluster[i]):
             t = get_second_from_fid(p['fid'], fps)
             bins[int(t / BIN_WIDTH)] += 1
-#         print("Cluster %d coverage = %f" % (i, 1. * np.count_nonzero(bins) / bins.shape[0]))    
-        cov = 1. * np.count_nonzero(bins) / (bins.shape[0] - com_length / BIN_WIDTH)
+            dua += (p['shot'][1] - p['shot'][0]) / fps / video_length
+            if j != 0:
+                gaps.append((p['fid'] - cluster[i][j-1]['fid']) / fps)
+        cov = 1. * np.count_nonzero(bins) / (bins.shape[0])
         coverage.append(cov)
-#         print("Cluster %d coverage: %f" % (i, coverage[i]))
-    
-    ## merge similar clusters
-    MERGE_THRESH = 1.0
-    while True:
-        del_key = -1
-        for i, c1 in enumerate(cluster_center):
-            if del_key != -1:
-                break
-            for j in range(i+1, len(cluster_center)):
-                c2 = cluster_center[j]
-                sim = np.linalg.norm(c1['feature']- c2['feature'])
-                if sim < MERGE_THRESH:
-                    if detail:
-                        print("Similarity between center %d and center %d = %f" % (i, j, sim))
-                    if coverage[i] < coverage[j]:
-                        del_key = i
-                    else:
-                        del_key = j
-                    break
-        if del_key != -1:
-            del cluster[del_key]
-            del cluster_center[del_key]
-            del coverage[del_key]
-            del cluster_side[del_key]
+        duration.append(dua)
+        gaps.sort()
+        if len(cluster[i]) > 0:
+            firstAppear.append(get_second_from_fid(cluster[i][0]['shot'][0], fps))
+            shotGap.append(gaps)
         else:
-            break
-    
+            firstAppear.append(0)
+            shotGap.append([0])
+#         l = (get_second_from_fid(c[-1]['fid'], fps) - get_second_from_fid(c[0]['fid'], fps)) / video_length
+        
     ## find the cluster with the most broad distribution
-    SPREAD_THRESH = 0.5
-    DURATION_THRESH = 0.5
-#     HEAD_APPEAR = 300
     anchor_group = []
     anchor_side = []
     anchor_center = []
-    anchor_cov_dua = []
-    max_coverage = 0
-    max_duration = 0
-    for i, c in enumerate(cluster):
+    cvg_sort = np.argsort(coverage)[::-1]
+    last_idx = cvg_sort[0]
+    cvg_max = coverage[cvg_sort[0]]
+    for i, idx in enumerate(cvg_sort[1:]):
         if detail:
-            print("Cluster %d coverage: %f" % (i, coverage[i]))
-        if coverage[i] < SPREAD_THRESH:
-            continue
-        duration = get_second_from_fid(c[-1]['fid'], fps) - get_second_from_fid(c[0]['fid'], fps)
-        if detail:
-            print("Cluster %d duration: %f" % (i, 1. * duration / video_length))
-        if 1. * duration / video_length < DURATION_THRESH:
-            continue
-#         if com_list[0][0][0] < 
-#         start = com_list[]
-        anchor_group.append(c)
-        anchor_side.append(cluster_side[i])
-        anchor_center.append(cluster_center[i])
-        anchor_cov_dua.append((coverage[i], duration))
-        if coverage[i] > max_coverage:
-            max_coverage = coverage[i]
-        if duration > max_duration:
-            max_duration = duration
-#     print("side", len(anchor_side[0]))
+            print("Cluster %d coverage, duration, shotGap: %.3f, %.3f, %.3f" % (i, coverage[last_idx], duration[last_idx], shotGap[last_idx][int(len(shotGap[last_idx])*0.75)]))
+        anchor_group.append(cluster[last_idx])
+        anchor_side.append(cluster_side[last_idx])
+        anchor_center.append(cluster_center[last_idx])
+        if coverage[idx] / cvg_max > 0.8:#0.8
+            last_idx = idx
+        else:
+            break
+            
     if len(anchor_group) == 0:
         return None
+    elif len(anchor_group) > 2:
+        first_min_idx = np.argmin(firstAppear)
+        anchor_group = []
+        anchor_side = []
+        anchor_center = []
+        anchor_group.append(cluster[first_min_idx])
+        anchor_side.append(cluster_side[first_min_idx])
+        anchor_center.append(cluster_center[first_min_idx])
+        
     
     ## if large cluster exist, remove small cluster
 #     anchor_group_raw = anchor_group
@@ -220,9 +246,11 @@ def detect_anchor(video_name, video_meta, single_person, com_list=None, detail=T
 #     if len(anchor_group) < len(anchor_group_raw):
 #         print(video_name + '++++++++++++++++++++++++++++++++++++++++++')
     
-    ## reorder 
+    ## reorder
+    cnt_face = 0
     for i, anchor_person in enumerate(anchor_group):
         for j, p in enumerate(anchor_group[i]):
+            cnt_face += 1
             anchor_group[i][j]['fake'] = False
             sim = np.linalg.norm(anchor_center[i]['feature'] - p['feature'])
             anchor_group[i][j]['sim'] = sim
@@ -247,7 +275,7 @@ def detect_anchor(video_name, video_meta, single_person, com_list=None, detail=T
 #                     anchor_side[i][k] = tmp
 
 #         anchor_group[i].extend(anchor_side[i])
-                    
+    print('Labeled face: %d, Total face: %d' % (cnt_face, len(single_person)))                
     return anchor_group
 
 def get_middle_anchor(anchor_group, detail=True):
@@ -372,9 +400,9 @@ def plot_cluster(video_name, video_meta, anchor_group):
                         color = [(0, 0, 255), (255, 0, 0), (0, 255, 0), (255, 0, 255), (255, 255, 0), (0, 255, 255), (128, 128, 255), (128, 255, 128)]
 #                         cv2.rectangle(img, (x1, y1), (x2, y2), color=color[face['type']], thickness=3)
                         cv2.rectangle(img, (x1, y1), (x2, y2), color=color[0], thickness=3)
-#                         if face['sim'] == 0:
-#                             filename = '../tmp/anchor_single/' + video_name + '_' + str(i) + '.jpg'
-#                             cv2.imwrite(filename, img)
+                        if face['sim'] == 0:
+                            filename = '../tmp/anchor_single/' + video_name + '_' + str(i) + '.jpg'
+                            cv2.imwrite(filename, img)
                         anchor_true[i][j] = img
                     else:
                         cv2.rectangle(img, (x1, y1), (x2, y2), color=(255,255,255), thickness=3)
@@ -388,25 +416,25 @@ def plot_cluster(video_name, video_meta, anchor_group):
         filename = '../tmp/anchor/' + video_name + '_' + str(i) + '.jpg'
         grid_small = cv2.resize(grid, (1920, int(H/W*1920)))
         cv2.imwrite(filename, grid_small)
-    for i in range(len(anchor_false)):
-        grid = view_grid(anchor_false[i], 5)
-        H, W, C = grid.shape
-        filename = '../tmp/anchor/' + video_name + '_' + str(i) + '_fake.jpg'
-        grid_small = cv2.resize(grid, (1920, int(H/W*1920)))
-        cv2.imwrite(filename, grid_small) 
+#     for i in range(len(anchor_false)):
+#         grid = view_grid(anchor_false[i], 5)
+#         H, W, C = grid.shape
+#         filename = '../tmp/anchor/' + video_name + '_' + str(i) + '_fake.jpg'
+#         grid_small = cv2.resize(grid, (1920, int(H/W*1920)))
+#         cv2.imwrite(filename, grid_small) 
     
 def plot_distribution(video_meta, anchor_group, com_list=None):
     fps = video_meta['fps']    
     video_length = video_meta['video_length']
     fig = plt.figure()
     fig.set_size_inches(14, 4)
-    color = ['b', 'g', 'y', 'c', 'k', 'b', 'g', 'y', 'c', 'k']
+    color = ['b', 'g', 'y', 'c', 'k']
     for i in range(len(anchor_group)):
         anchor_person = anchor_group[i]
         for p in anchor_person:
             if p['fake'] == False:
                 t = get_second_from_fid(p['fid'], fps)
-                plt.plot([t, t], [i+0.5, i+1.5], color[i], linewidth=1.0)
+                plt.plot([t, t], [i+0.5, i+1.5], color[i%5], linewidth=1.0)
         if not com_list is None:        
             for com in com_list:
                 plt.plot([get_second(com[0][1]), get_second(com[1][1])], [i+1, i+1], 'r', linewidth=4.0)
@@ -427,7 +455,7 @@ def solve_single_video(video_name, video_meta, face_list, com_list, plot_d=False
         out.write(video_name + '\n')
         out.close()
         return None
-    get_middle_anchor(anchor_group, detail)
+#     get_middle_anchor(anchor_group, detail)
    
     if plot_c:
         plot_cluster(video_name, video_meta, anchor_group)
@@ -487,11 +515,11 @@ def clean_anchor_dict(anchor_dict, people_dict, repeat_cnt=None):
             if cnt < OTHER_SHOW_THRESH:
                 anchor_group_new.append(anchor_person)
 #             repeat_cnt.append(cnt)
-#             else:
-#                 print(video, anchor['fid'], anchor['bbox'], cnt)
-#                 url = 'http://104.198.10.97/frameserver/fetch?path=tvnews%2Fvideos%2F' + video + '.mp4&frame=' + str(anchor['fid'])
-#                 print(url)
-#                 print('')
+            else:
+                print(video, anchor['fid'], anchor['bbox'], cnt)
+                url = 'http://104.198.10.97/frameserver/fetch?path=tvnews%2Fvideos%2F' + video + '.mp4&frame=' + str(anchor['fid'])
+                print(url)
+                print('')
 
         anchor_dict_new[video] = anchor_group_new
     return anchor_dict_new
@@ -518,14 +546,11 @@ def detect_anchor_t(video_list, anchor_dict_path, plot_c, thread_id):
     meta_dict = pickle.load(open('../data/video_meta_dict.pkl', 'rb'))
 
     if not video_list is None:
-        if not plot_c:
-            face_dict = pickle.load(open('../data/face_dict.pkl', 'rb'))
-            com_dict = pickle.load(open('../data/commercial_dict.pkl', 'rb'))
-            anchor_dict = {}
-        else:
-            anchor_dict = pickle.load(open('../data/anchor_dict.pkl', 'rb'))    
+        face_dict = pickle.load(open('../data/face_dict.pkl', 'rb'))
+        com_dict = pickle.load(open('../data/commercial_dict.pkl', 'rb'))
+        anchor_dict = {}
     else:
-        dict_path = '../data/face_dict/face_dict_' + str(thread_id) + '.pkl'
+        dict_path = '../data/face_dict/face_dict_' + str(thread_id+32) + '.pkl'
         face_dict = pickle.load(open(dict_path, 'rb'))
 #         anchor_dict_name = pickle.load(open('../data/anchor_dict_name.pkl', 'rb'))
         anchor_dict_name = {}
@@ -536,19 +561,14 @@ def detect_anchor_t(video_list, anchor_dict_path, plot_c, thread_id):
     for i in range(len(video_list)):
         video_name = video_list[i]
         print("Thread %d start %dth video: %s" % (thread_id, i, video_name))
-        if not plot_c:
-            if video_name in com_dict:
-                com_list = com_dict[video_name]
-            else:
-                com_list = None
-            if video_name in meta_dict:
-                anchor_group = solve_single_video(video_name, meta_dict[video_name], face_dict[video_name], com_list, False, plot_c, False)
-            else:
-                anchor_group = None
+        if video_name in com_dict:
+            com_list = com_dict[video_name]
         else:
-            if video_name in anchor_dict: 
-                plot_cluster(video_name, meta_dict[video_name], anchor_dict[video_name])
-            continue
+            com_list = None
+        if video_name in meta_dict:
+            anchor_group = solve_single_video(video_name, meta_dict[video_name], face_dict[video_name], com_list, False, plot_c, False)
+        else:
+            anchor_group = None
             
         if anchor_group is None:
             anchor_dict[video_name] = []
@@ -556,9 +576,8 @@ def detect_anchor_t(video_list, anchor_dict_path, plot_c, thread_id):
             anchor_dict[video_name] = anchor_group
         if i % 50 == 0:
             pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))
-            
-    if not plot_c:
-        pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))
+    
+    pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))
     print("Thread %d finished computing..." % (thread_id))
     out = open('../log/detect_anchor.txt', 'a')
     out.write('Thread ' + str(thread_id) + ' finished computing...\n')
@@ -573,13 +592,12 @@ def detect_anchor_parallel(video_list_path, anchor_dict_path=None, plot_c=False,
     if not video_list_path is None:
         video_list = open(video_list_path).read().split('\n')
     
-        if not plot_c:
-            dict_file = Path(anchor_dict_path)
-            if dict_file.is_file():
-                anchor_dict = pickle.load(open(anchor_dict_path, "rb" ))
-                video_list = [video for video in video_list if video not in anchor_dict]
-            else:
-                anchor_dict = {}
+        dict_file = Path(anchor_dict_path)
+        if dict_file.is_file():
+            anchor_dict = pickle.load(open(anchor_dict_path, "rb" ))
+            video_list = [video for video in video_list if video not in anchor_dict]
+        else:
+            anchor_dict = {}
 
         num_video = len(video_list)
         print(num_video)
@@ -600,7 +618,7 @@ def detect_anchor_parallel(video_list_path, anchor_dict_path=None, plot_c=False,
         
     anchor_dict_list = []
     for i in range(nthread):
-        anchor_dict_list.append('../tmp/anchor_dict_' + str(i) + '.pkl')
+        anchor_dict_list.append('../tmp/anchor_dict_' + str(i+32) + '.pkl')
 
     if use_process:
         ctx = mp.get_context('spawn')
@@ -625,9 +643,6 @@ def detect_anchor_parallel(video_list_path, anchor_dict_path=None, plot_c=False,
     for t in thread_list:
         t.join()
     
-    if plot_c:
-        return
-    
     for path in anchor_dict_list:
         dict_file = Path(path)
         if not dict_file.is_file():
@@ -637,7 +652,7 @@ def detect_anchor_parallel(video_list_path, anchor_dict_path=None, plot_c=False,
         for key, value in anchor_dict_tmp.items():
             anchor_dict[key] = value
     
-    pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ))  
+    pickle.dump(anchor_dict, open(anchor_dict_path, "wb" ), protocol=2)  
     
 #     # post process
 #     people_dict = build_people_dict(anchor_dict)
