@@ -166,13 +166,22 @@ def detect_anchor(video_name, video_meta, single_person, com_list=None, detail=T
 #                 cluster[i][idx]['sim'] = sim[idx]
         new_group_idx.sort()
         new_group = []
+        cnt_large = 0
         for idx in new_group_idx:
-            new_group.append(cluster[i][idx])
-        origin_faces = len(cluster[i])    
-        cluster[i] = new_group
+            p = cluster[i][idx]
+            p['sim'] = np.linalg.norm(p['feature'] - cluster_center[i]['feature'])
+            if p['sim'] > 0.5:
+                cnt_large += 1
+            new_group.append(p)
+        origin_faces = len(cluster[i])
+        ## remove cluster with no center
+        if cnt_large == len(new_group):
+            cluster[i] = []
+        else:
+            cluster[i] = new_group
         if detail:
             print("Cluster %d: %d faces -> %d faces" % (i, origin_faces, len(cluster[i])))
-    
+            
     ## calculate the cluster coverage, duration, first appear time
     BIN_WIDTH = 150
     coverage = []

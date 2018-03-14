@@ -72,11 +72,18 @@ def average_image(images, size=None):
 def stitch_img_grid(images, num_col, size=None, deform=False, average_row=False):
     if len(images) == 0:
         return None
+    for img in images:
+        if not img is None:
+            grid_h, grid_w, C = img.shape
+            break
+    
     if not size is None:
         grid_h, grid_w = size
-        C = images[0].shape[2]
-    else:
-        grid_h, grid_w, C = images[0].shape
+        
+    ## replace None with black img
+    for idx, img in enumerate(images):
+        if img is None:
+            images[idx] = np.zeros((grid_h, grid_w, C))
         
     if average_row:
         num_row = len(images) / num_col

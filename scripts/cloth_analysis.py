@@ -3,6 +3,9 @@ import copy
 import numpy as np
 import cv2
 import os
+import random
+from utility import *
+
 
 attri_name = ['pattern', 'major_color', 'necktie', 'collar', 'scarf', 'sleeve', 'neckline', 'clothing', 'jacket', 'hat', \
               'glass', 'layer', 'necktie_color', 'necktie_pattern', 'hair_color', 'hair_length', 'hair_colorNN']

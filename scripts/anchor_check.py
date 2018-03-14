@@ -30,16 +30,17 @@ def group_by_station(random_dict):
         dict_by_station[station][video] = group
     return dict_by_station
 
-def cluster_real_anchor(anchor_dict):
+def cluster_real_anchor(anchor_center):
     ## cluster from centers
-    anchor_center = build_anchor_center(anchor_dict)
-    num_videos = len(anchor_dict)
+#     anchor_center = build_anchor_center(anchor_dict)
+    
+    num_videos = len(anchor_center)
     features = []
     for video, centers in anchor_center.items():
         for p in centers:
             features.append(p['feature'])
     NUM_CLUSTER = 10
-    print(len(features))
+#     print(len(features))
     kmeans = KMeans(n_clusters=NUM_CLUSTER).fit(features)
     
     cluster_center = []
@@ -82,7 +83,7 @@ def cluster_real_anchor(anchor_dict):
     ANCHOR_THRESH = 0.5
     real_anchor = []
     for idx in sort_idx:
-        print(1. * cluster_cnt[idx] / num_videos)
+#         print(1. * cluster_cnt[idx] / num_videos)
         if 1. * cluster_cnt[idx] / num_videos > ANCHOR_THRESH:
             real_anchor.append(cluster_center[idx])
             
