@@ -1,7 +1,16 @@
 #!/bin/bash
-# init common pkgs for Py3
 
-# sudo apt-get install python3-pip
+sudo apt-get install python-pip python-dev python-virtualenv # for Python 2.7
+sudo apt-get install python3-pip python3-dev python-virtualenv # for Python 3.n
+
+virtualenv --system-site-packages targetDirectory # for Python 2.7
+virtualenv --system-site-packages -p python3 targetDirectory # for Python 3.n
+
+source ~/tensorflow/bin/activate # bash, sh, ksh, or zsh
+
+easy_install -U pip #upgrade pip
+
+## init common pkgs for Py3
 
 # sudo pip3 install jupyter
 # sudo pip3 install numpy
