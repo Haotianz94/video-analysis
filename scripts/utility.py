@@ -40,7 +40,7 @@ def resize_image(img, size, deform=False):
     H, W, C = img.shape
     grid_h, grid_w = size
     if not deform:
-        if 1. * H / W <= 2: 
+        if 1. * H / W <= 1. * grid_h / grid_w: 
             w = grid_w
             h = int(1. * H / W * w) 
         else:
