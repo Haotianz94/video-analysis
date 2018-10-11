@@ -567,10 +567,10 @@ def test_video_list(video_list_path, show_detail=False, local=True):
 
     return result
 
-def test_all_result():
+def test_all_result(res_path):
     commercial_gt = load_commercial_groundtruth()
     avg_precision = avg_recall = num_res = 0
-    commercial_dict = pickle.load(open('../data/commercial_dict.pkl', 'rb'))
+    commercial_dict = pickle.load(open(res_path, 'rb'))
     result = {}
     for video_name in sorted(commercial_dict):
         if video_name in commercial_gt:
