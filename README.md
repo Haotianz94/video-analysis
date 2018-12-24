@@ -4,7 +4,7 @@
 This repo contains all code written as part of this project:
 
 * `scripts`: processing scripts for news anchor image dataset collection
-* `streetstyle-classifier`
+* `clothing_classifier`
     * `classifier`: models and training scripts for StreetStyle and final news anchor classifier networks
     * `data` : script to download all datasets used in the project
     * `processing` : scripts for performing all temporal analyses of the classified anchor images
