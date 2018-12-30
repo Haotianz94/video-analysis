@@ -1,0 +1,6 @@
+*.pyc
+data
+log
+result
+streetstyle-classifier/data
+tmp
