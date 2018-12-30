@@ -98,7 +98,7 @@ class HairStyleClassifierTest(BaseTest):
         visualize_batches = kwargs.get("visualize_every_n_batches", 20)
         save_batches = kwargs.get("save_every_n_batches", 50)
         
-        log_file = './log/train_newsanchor_log_'+ str(int(time.time())) + '.txt'
+        log_file = './log/train_hairstyle_log_'+ str(int(time.time())) + '.txt'
         log_out = open(log_file, 'w')
 
         # counter for early stopping
@@ -149,7 +149,7 @@ class HairStyleClassifierTest(BaseTest):
             # save checkpoint if necessary
             # we log the current train/eval stats every time we save
             # and update best model if current model beats current best
-            if i % save_batches == 0:
+            if i % save_batches == 0 and i != 0:
                 # log training info
                 running_loss /= iter_count
                 running_correct = 1.*running_correct / running_total
@@ -166,23 +166,22 @@ class HairStyleClassifierTest(BaseTest):
                 running_total[:] = 0
                 iter_count = 0
                 # run on evaluation set
-#                 val_loss, val_acc, val_mean_class_acc = self.test_model()
-                val_loss, val_acc = self.test_model()
+                val_loss, val_acc, val_mean_class_acc = self.test_model()
                 # log eval info
                 self.log['val_loss'].append(np.ndarray.tolist(val_loss))
                 self.log['val_acc'].append(np.ndarray.tolist(val_acc))
-                #self.log['val_mean_class_acc'].append(np.ndarray.tolist(val_mean_class_acc))
+                self.log['val_mean_class_acc'].append(np.ndarray.tolist(val_mean_class_acc))
                 print('Eval Loss: ' + str(val_loss))
                 print('Eval Accuracy: ' + str(val_acc))
-                #print('Eval MCA: ' + str(val_mean_class_acc))
+                print('Eval MCA: ' + str(val_mean_class_acc))
                 log_out.write('Eval Loss: ' + str(val_loss) + '\n')
                 log_out.write('Eval Accuracy: ' + str(val_acc) + '\n')
-                #log_out.write('Eval MCA: ' + str(val_mean_class_acc) + '\n')
+                log_out.write('Eval MCA: ' + str(val_mean_class_acc) + '\n')
                 # check if better than best model (according to mean class accuracy)
                 best_model_loss_sum = np.sum(np.array(self.log['best_model_val_loss']))
                 cur_model_loss_sum = np.sum(val_loss)
                 if cur_model_loss_sum < best_model_loss_sum:
-#                     self.log['best_model_val_mean_class_acc'] = np.ndarray.tolist(val_mean_class_acc)
+                    self.log['best_model_val_mean_class_acc'] = np.ndarray.tolist(val_mean_class_acc)
                     self.log['best_model_val_acc'] = np.ndarray.tolist(val_acc)
                     self.log['best_model_val_loss'] = np.ndarray.tolist(val_loss)
                     self.log_best_model()
@@ -198,7 +197,7 @@ class HairStyleClassifierTest(BaseTest):
                         log_out.write('EARLY STOPPING...\n')
                         early_stop = True
                 # save log
-                checkpoint = './log/newsanchor_'+ str(int(time.time())) + '_' + str(i) + '.tar'
+                checkpoint = './log/hairstyle_'+ str(int(time.time())) + '_' + str(i) + '.tar'
                 torch.save(self.log, checkpoint)
             elif i % visualize_batches == 0:
                 # print update if necessary
@@ -289,7 +288,7 @@ class HairStyleClassifierTest(BaseTest):
         # calculate totals
         running_loss /= iter_count
         running_correct = 1.*running_correct / running_total
-        #test_mean_class_acc = np.array([np.mean(1.*correct / total) for correct, total in zip(class_correct, class_total)])
+        test_mean_class_acc = np.array([np.mean(1.*correct / total) for correct, total in zip(class_correct, class_total)])
 
         self.model.train()
-        return running_loss, running_correct#, test_mean_class_acc
+        return running_loss, running_correct, test_mean_class_acc
